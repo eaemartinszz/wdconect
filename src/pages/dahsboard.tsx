@@ -1,11 +1,21 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom"; // 1. Importação para o redirecionamento
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+// Importações do Firebase
+import { auth, db } from "../firebaseConfig";
+import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export default function DashboardSettings() {
-  const navigate = useNavigate(); // 2. Inicialização do hook de rotas
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("profile");
+  
+  // Estados de Controle e Feedback
+  const [loading, setLoading] = useState(true);
+  const [salvando, setSalvando] = useState(false);
+  const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
+  const [userUid, setUserUid] = useState<string | null>(null);
 
-  // 3. Estados limpos (sem dados simulados)
+  // Estados do Perfil
   const [profileData, setProfileData] = useState({
     name: "",
     email: "",
@@ -14,18 +24,124 @@ export default function DashboardSettings() {
     bio: "",
   });
 
+  // Estados de Senha (Segurança)
+  const [passwords, setPasswords] = useState({
+    newPassword: "",
+    confirmPassword: ""
+  });
+
   const [notificacoes, setNotificacoes] = useState({
     app: true,
     email: true,
     whatsapp: false,
-    frequencia: "evento", // evento, diario, programado
+    frequencia: "evento",
   });
 
-  // 4. Função para o botão Sair da conta
-  const handleLogout = () => {
-    // Aqui você pode limpar os dados do usuário (ex: localStorage.removeItem('token'))
-    navigate("/login"); // Redireciona para a página de login
+  // ================= 1. BUSCAR DADOS AO CARREGAR A TELA =================
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        try {
+          // Busca os dados do usuário lá na coleção "usuarios" do Firestore
+          const docRef = doc(db, "usuarios", user.uid);
+          const docSnap = await getDoc(docRef);
+
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setProfileData({
+              name: data.nome || "", // Pega o nome que salvamos na criação da conta
+              email: user.email || "", // Pega o email seguro da Autenticação
+              cpf: data.cpf || "",
+              phone: data.telefone || "",
+              bio: data.bio || "",
+            });
+          }
+        } catch (error) {
+          console.error("Erro ao buscar dados do perfil:", error);
+        } finally {
+          setLoading(false); // Para a tela de "Carregando"
+        }
+      } else {
+        // Se não tiver ninguém logado, expulsa de volta pro Login
+        navigate("/login");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
+
+  // ================= 2. SALVAR ALTERAÇÕES NO PERFIL =================
+ // ================= 2. SALVAR ALTERAÇÕES NO PERFIL =================
+  const handleSaveProfile = async () => {
+    if (!userUid) return;
+    setSalvando(true);
+    setMensagem({ tipo: "", texto: "" });
+
+    try {
+      const docRef = doc(db, "usuarios", userUid);
+      
+      // SUBSTITUA O updateDoc POR setDoc com { merge: true }
+      await setDoc(docRef, {
+        nome: profileData.name,
+        telefone: profileData.phone,
+        bio: profileData.bio,
+      }, { merge: true }); // <-- Isso faz a mágica de criar se não existir!
+      
+      setMensagem({ tipo: "sucesso", texto: "Perfil atualizado com sucesso!" });
+      
+      // Limpa a mensagem após 3 segundos
+      setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
+    } catch (error) {
+      console.error("Erro ao atualizar:", error);
+      setMensagem({ tipo: "erro", texto: "Erro ao salvar alterações. Tente novamente." });
+    } finally {
+      setSalvando(false);
+    }
   };
+
+  // ================= 3. ATUALIZAR SENHA =================
+  const handleUpdatePassword = async () => {
+    if (passwords.newPassword !== passwords.confirmPassword) {
+      setMensagem({ tipo: "erro", texto: "As novas senhas não coincidem!" });
+      return;
+    }
+    
+    if (auth.currentUser && passwords.newPassword.length >= 6) {
+      try {
+        await updatePassword(auth.currentUser, passwords.newPassword);
+        setMensagem({ tipo: "sucesso", texto: "Senha atualizada com sucesso!" });
+        setPasswords({ newPassword: "", confirmPassword: "" }); // Limpa os campos
+      } catch (error: any) {
+        setMensagem({ tipo: "erro", texto: "Erro ao atualizar senha. Faça login novamente e tente." });
+      }
+    }
+  };
+
+  // ================= 4. SAIR DA CONTA =================
+  const handleLogout = async () => {
+    try {
+      await signOut(auth); // Desloga no Firebase
+      navigate("/login");
+    } catch (error) {
+      console.error("Erro ao sair:", error);
+    }
+  };
+
+  // Tela de Carregamento enquanto o Firebase busca os dados
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-blue-600 font-semibold flex items-center gap-2">
+          <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+            <path d="M12 2a10 10 0 0 1 10 10" />
+          </svg>
+          Carregando seu painel...
+        </div>
+      </div>
+    );
+  }
 
   // ================= TABS =================
 
@@ -35,6 +151,13 @@ export default function DashboardSettings() {
         <h2 className="text-2xl font-bold text-slate-900 mb-1">Minha Conta</h2>
         <p className="text-slate-500 text-sm">Gerencie suas informações pessoais e preferências de notificação.</p>
       </div>
+
+      {/* Alerta de Sucesso ou Erro */}
+      {mensagem.texto && (
+        <div className={`p-4 rounded-xl border font-medium text-sm ${mensagem.tipo === 'sucesso' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+          {mensagem.texto}
+        </div>
+      )}
 
       {/* Imagens de Perfil e Fundo */}
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
@@ -52,14 +175,7 @@ export default function DashboardSettings() {
         </div>
         <div className="px-6 pb-6 relative">
           <div className="w-24 h-24 rounded-full border-4 border-white bg-slate-200 -mt-12 mb-4 relative group cursor-pointer overflow-hidden">
-            {/* Adicionado um fallback "Usuário" caso o nome esteja vazio */}
             <img src={`https://ui-avatars.com/api/?name=${profileData.name || 'Usuário'}&background=0D8ABC&color=fff`} alt="Perfil" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                <circle cx="12" cy="13" r="4" />
-              </svg>
-            </div>
           </div>
 
           <form className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -89,15 +205,20 @@ export default function DashboardSettings() {
               <textarea rows={3} placeholder="Escreva algo sobre você..." value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
             </div>
             <div className="md:col-span-2 flex justify-end pt-4">
-              <button type="button" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors">
-                Salvar Alterações
+              <button 
+                type="button" 
+                onClick={handleSaveProfile}
+                disabled={salvando}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors disabled:bg-blue-400"
+              >
+                {salvando ? "Salvando..." : "Salvar Alterações"}
               </button>
             </div>
           </form>
         </div>
       </div>
 
-      {/* Notificações */}
+      {/* Notificações (mantido apenas visual no momento) */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
           <svg className="w-5 h-5 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -136,9 +257,6 @@ export default function DashboardSettings() {
               <option value="diario">Resumo Diário</option>
               <option value="programado">Programado (Somente em dias úteis)</option>
             </select>
-            <p className="text-xs text-slate-500 mt-2">
-              Mensagens de segurança (como troca de senha) são sempre enviadas imediatamente, independente da configuração.
-            </p>
           </div>
         </div>
       </div>
@@ -152,22 +270,40 @@ export default function DashboardSettings() {
         <p className="text-slate-500 text-sm">Mantenha sua conta segura e gerencie suas credenciais.</p>
       </div>
 
+      {mensagem.texto && (
+        <div className={`p-4 rounded-xl border font-medium text-sm ${mensagem.tipo === 'sucesso' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+          {mensagem.texto}
+        </div>
+      )}
+
       {/* Alterar Senha */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row gap-8">
         <div className="flex-1 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Senha Atual</label>
-            <input type="password" placeholder="••••••••" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-          </div>
-          <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Nova Senha</label>
-            <input type="password" placeholder="••••••••" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+            <input 
+              type="password" 
+              placeholder="••••••••" 
+              value={passwords.newPassword}
+              onChange={(e) => setPasswords({...passwords, newPassword: e.target.value})}
+              className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirmar Nova Senha</label>
-            <input type="password" placeholder="••••••••" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+            <input 
+              type="password" 
+              placeholder="••••••••" 
+              value={passwords.confirmPassword}
+              onChange={(e) => setPasswords({...passwords, confirmPassword: e.target.value})}
+              className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+            />
           </div>
-          <button type="button" className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-medium transition-colors w-full md:w-auto mt-2">
+          <button 
+            type="button" 
+            onClick={handleUpdatePassword}
+            className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-medium transition-colors w-full md:w-auto mt-2"
+          >
             Atualizar Senha
           </button>
         </div>
@@ -182,35 +318,9 @@ export default function DashboardSettings() {
             Política de Segurança
           </h4>
           <ul className="text-xs text-slate-600 space-y-2">
-            <li className="flex items-center gap-2">
-              <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
-              Mínimo de 8 caracteres
-            </li>
-            <li className="flex items-center gap-2">
-              <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
-              Pelo menos 1 letra maiúscula
-            </li>
-            <li className="flex items-center gap-2">
-              <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
-              Pelo menos 1 número
-            </li>
-            <li className="flex items-center gap-2">
-              <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
-              Um caractere especial (@, !, #, etc)
-            </li>
+            <li className="flex items-center gap-2"><div className="w-1 h-1 bg-slate-400 rounded-full"></div>Mínimo de 6 caracteres</li>
           </ul>
         </div>
-      </div>
-
-      {/* Exclusão de Conta */}
-      <div className="bg-red-50 rounded-2xl border border-red-100 p-6">
-        <h3 className="text-lg font-bold text-red-700 mb-2">Excluir Conta</h3>
-        <p className="text-sm text-red-600/80 mb-4 max-w-3xl">
-          Ao manter sua conta ativa, você preserva seu histórico de conexões, avaliações positivas que aumentam sua credibilidade (para profissionais) e evita processos de verificação futuros. Tem certeza que deseja encerrar sua jornada conosco?
-        </p>
-        <button type="button" className="bg-white border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-6 py-2.5 rounded-lg font-medium transition-colors text-sm">
-          Solicitar Exclusão de Conta
-        </button>
       </div>
     </div>
   );
@@ -221,93 +331,10 @@ export default function DashboardSettings() {
         <h2 className="text-2xl font-bold text-slate-900 mb-1">Conformidade e Privacidade</h2>
         <p className="text-slate-500 text-sm">Gerencie seus dados e revise nossos termos (Adequação à LGPD).</p>
       </div>
-
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Documentos Legais */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
           <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Documentos Legais</h3>
-          
-          <a href="#" className="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Termos de Uso</p>
-                <p className="text-xs text-slate-500">Atualizado em Março de 2026</p>
-              </div>
-            </div>
-            <svg className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-          </a>
-
-          <a href="#" className="group flex items-center justify-between p-3 rounded-lg hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-200">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-900">Política de Privacidade</p>
-                <p className="text-xs text-slate-500">Atualizado em Março de 2026</p>
-              </div>
-            </div>
-            <svg className="w-4 h-4 text-slate-400 group-hover:text-emerald-600 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-          </a>
-        </div>
-
-        {/* Controles LGPD */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-          <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-2">
-            Controles LGPD
-          </h3>
-          
-          <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 flex items-start gap-4">
-            <svg className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            <div>
-              <h4 className="text-sm font-semibold text-slate-900 mb-1">Portabilidade de Dados</h4>
-              <p className="text-xs text-slate-500 mb-3">
-                Faça o download de uma cópia de todos os seus dados pessoais associados à sua conta.
-              </p>
-              <button className="text-sm font-medium text-blue-600 hover:text-blue-700">
-                Solicitar Arquivo
-              </button>
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 flex items-start gap-4">
-            <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M12 16v-4" />
-              <path d="M12 8h.01" />
-            </svg>
-            <div>
-              <h4 className="text-sm font-semibold text-slate-900 mb-1">Revogar Consentimentos</h4>
-              <p className="text-xs text-slate-500 mb-3">
-                Gerencie permissões de cookies de terceiros e compartilhamento de dados analíticos.
-              </p>
-              <button className="text-sm font-medium text-amber-600 hover:text-amber-700">
-                Gerenciar Preferências
-              </button>
-            </div>
-          </div>
+          <p className="text-sm text-slate-500">Você aceitou os termos de uso na criação da sua conta.</p>
         </div>
       </div>
     </div>
@@ -318,7 +345,6 @@ export default function DashboardSettings() {
       
       {/* MENU LATERAL (SIDEBAR) */}
       <aside className="w-full md:w-64 bg-white border-r border-slate-200 md:min-h-screen flex flex-col">
-        {/* Header do Menu */}
         <div className="p-6 border-b border-slate-100 hidden md:block">
           <a href="/" className="flex items-center gap-2 group">
             <img src="/logowd.png" alt="Logo" className="w-8 h-8 object-contain" />
@@ -328,65 +354,24 @@ export default function DashboardSettings() {
           </a>
         </div>
 
-        {/* Navegação */}
         <nav className="flex-1 p-4 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
-          <button
-            onClick={() => setActiveTab("profile")}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === "profile" 
-              ? "bg-blue-50 text-blue-700" 
-              : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            }`}
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
+          <button onClick={() => setActiveTab("profile")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === "profile" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
             Minha Conta
           </button>
-
-          <button
-            onClick={() => setActiveTab("security")}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === "security" 
-              ? "bg-blue-50 text-blue-700" 
-              : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            }`}
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
+          <button onClick={() => setActiveTab("security")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === "security" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
             Segurança e Acesso
           </button>
-
-          <button
-            onClick={() => setActiveTab("compliance")}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === "compliance" 
-              ? "bg-blue-50 text-blue-700" 
-              : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            }`}
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
+          <button onClick={() => setActiveTab("compliance")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === "compliance" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
             Privacidade e LGPD
           </button>
         </nav>
 
-        {/* Footer do Menu */}
         <div className="p-4 border-t border-slate-100 hidden md:block">
-          {/* Adicionado a chamada da função handleLogout no onClick do botão */}
-          <button 
-            onClick={handleLogout} 
-            className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-sm font-medium text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
+          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-sm font-medium text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors">
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
             Sair da conta
           </button>
         </div>

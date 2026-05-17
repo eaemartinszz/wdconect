@@ -1,19 +1,52 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom"; 
+// Importações do Firebase
+import { signInWithEmailAndPassword } from "firebase/auth";
+
+// Para isso (com dois pontos):
+import { auth } from "../firebaseConfig";
+
 
 export default function LoginPage() {
   const navigate = useNavigate(); 
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  
+  // Novos estados para feedback na tela
+  const [erro, setErro] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault(); // Impede a página de recarregar
-    
-    console.log("Login de teste realizado com:", { email, password });
+  const handleSubmit = async (e: React.FormEvent) => {          
+    e.preventDefault();
+    setErro(""); // Limpa os erros anteriores
+    setLoading(true); // Inicia o estado de carregamento
 
-    // Redireciona direto para o Dashboard sem checar nada
-    navigate("/configuracoes");
+    try {
+      // Tenta fazer o login no Firebase
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Se deu certo, os dados do usuário ficam aqui (opcional para uso futuro)
+      const user = userCredential.user;
+      console.log("Login realizado com sucesso:", user.email);
+
+      // Redireciona para o Dashboard
+      navigate("/configuracoes");
+
+    } catch (error : any) {
+      console.error("Erro no login:", error.code);
+      
+      // Tratamento de erros comuns do Firebase
+      if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+        setErro("E-mail ou senha incorretos.");
+      } else if (error.code === 'auth/invalid-email') {
+        setErro("Formato de e-mail inválido.");
+      } else {
+        setErro("Ocorreu um erro ao fazer login. Tente novamente.");
+      }
+    } finally {
+      setLoading(false); // Para o estado de carregamento
+    }
   };
 
   return (
@@ -88,11 +121,10 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Formulário - Modificado para aceitar qualquer coisa sem bloquear */}
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-1.5">
-                E-mail ou Usuário
+                E-mail
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -101,14 +133,14 @@ export default function LoginPage() {
                     <polyline points="22,6 12,13 2,6" />
                   </svg>
                 </div>
-                {/* Tirei o 'required' e mudei type="email" para type="text" para não travar */}
                 <input
                   id="email"
-                  type="text" 
+                  type="email" 
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
-                  placeholder="Seu login..."
+                  placeholder="Seu e-mail cadastrado..."
                 />
               </div>
             </div>
@@ -129,10 +161,10 @@ export default function LoginPage() {
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
                 </div>
-                {/* Tirei o 'required' */}
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="block w-full pl-10 pr-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
@@ -158,11 +190,22 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Mensagem de Erro (Exibida apenas se a variável 'erro' tiver conteúdo) */}
+            {erro && (
+              <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm text-center font-medium border border-red-100">
+                {erro}
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full flex items-center justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-md shadow-blue-500/20 text-base font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-300 hover:-translate-y-0.5"
+              disabled={loading}
+              className={`w-full flex items-center justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-md shadow-blue-500/20 text-base font-semibold text-white transition-all duration-300 
+                ${loading 
+                  ? "bg-blue-400 cursor-not-allowed" 
+                  : "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"}`}
             >
-              Entrar na conta
+              {loading ? "Entrando..." : "Entrar na conta"}
             </button>
           </form>
 

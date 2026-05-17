@@ -10,10 +10,9 @@
   },
   "dependencies": {
     "clsx": "2.1.1",
-    "firebase": "^12.13.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "react-router-dom": "^7.15.1",
+    "react-router-dom": "^7.15.0",
     "tailwind-merge": "3.4.0"
   },
   "devDependencies": {

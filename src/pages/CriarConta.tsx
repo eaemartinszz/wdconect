@@ -1,23 +1,77 @@
 // src/pages/CriarConta.jsx
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+// Importações do Firebase
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../firebaseConfig";
 
 export default function CriarConta() {
+  const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState("");
+
   const [formData, setFormData] = useState({
     accountType: "family", // 'family' ou 'professional'
     name: "",
     email: "",
     password: "",
+    carterinha: "", // Novo campo para o registro profissional
   });
 
-  const handleChange = (e) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("Criando conta com:", formData);
-    // Lógica de cadastro aqui
+    setErro("");
+    setLoading(true);
+
+    try { 
+      // 1. Cria o usuário no Firebase Authentication
+      const userCredential = await createUserWithEmailAndPassword(
+        auth, 
+        formData.email, 
+        formData.password
+      );
+      const user = userCredential.user;
+
+      // 2. Prepara os dados que vão para o Banco de Dados (Firestore)
+    const userData: { nome: string; email: string; tipoConta: string; dataCriacao: Date; carterinha?: string } = {
+  nome: formData.name,
+  email: formData.email,
+  tipoConta: formData.accountType,
+  dataCriacao: new Date(),
+};
+
+      // Se for profissional, adiciona a carteirinha no objeto
+      if (formData.accountType === "professional") {
+        userData.carterinha = formData.carterinha;
+      }
+
+      // 3. Salva os dados extras no Firestore na coleção "usuarios"
+      // Usamos o user.uid como ID do documento para vincular a conta de auth com os dados
+      await setDoc(doc(db, "usuarios", user.uid), userData);
+
+      console.log("Conta criada com sucesso:", user.uid);
+      
+      // 4. Redireciona o usuário (ajuste a rota conforme necessário)
+      navigate("/configuracoes");
+
+    }  catch (error: any) {
+      console.error("Erro ao criar conta:", error.code);
+      if (error.code === 'auth/email-already-in-use') {
+        setErro("Este e-mail já está cadastrado.");
+      } else if (error.code === 'auth/weak-password') {
+        setErro("A senha deve ter pelo menos 6 caracteres.");
+      } else {
+        setErro("Ocorreu um erro ao criar a conta. Tente novamente.");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -25,16 +79,13 @@ export default function CriarConta() {
       
       {/* ============ LADO ESQUERDO (BRANDING) ============ */}
       <div className="hidden lg:flex flex-col relative w-1/2 bg-gradient-to-br from-[#0c1929] via-[#112240] to-[#0a1628] overflow-hidden p-12 justify-between">
-        {/* Efeitos de Fundo */}
         <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-blue-500/30 to-transparent" />
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl" />
 
         <div className="relative z-10">
           <a href="/" className="flex items-center gap-3 group w-max">
-           
-              <img src="/logowd.png" alt="Logo" className="w-6 h-6 object-contain group-hover:animate-pulse" />             
-            
+            <img src="/logowd.png" alt="Logo" className="w-6 h-6 object-contain group-hover:animate-pulse" />            
             <span className="font-montserrat font-bold text-2xl tracking-tight text-white">
               <span className="text-blue-400">WD</span> Conecta
             </span>
@@ -63,7 +114,6 @@ export default function CriarConta() {
       {/* ============ LADO DIREITO (FORMULÁRIO) ============ */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative overflow-y-auto">
         
-        {/* Botão Voltar (Mobile & Desktop) */}
         <a 
           href="/login" 
           className="absolute top-6 left-6 sm:top-8 sm:left-8 flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors text-sm font-medium"
@@ -77,7 +127,6 @@ export default function CriarConta() {
 
         <div className="max-w-md w-full space-y-6 mt-12 lg:mt-0 py-8">
           
-          {/* Cabeçalho do Form */}
           <div className="text-center sm:text-left">
             <div className="lg:hidden flex items-center justify-center sm:justify-start gap-2 mb-8">
                <img src="/logowd.png" alt="Logo" className="w-10 h-10 object-contain" />
@@ -134,18 +183,12 @@ export default function CriarConta() {
               </button>
             </div>
 
-            {/* Inputs */}
+            {/* Inputs Base */}
             <div>
               <label htmlFor="name" className="block text-sm font-semibold text-slate-700 mb-1.5">
                 Nome Completo
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                    <circle cx="12" cy="7" r="4" />
-                  </svg>
-                </div>
                 <input
                   id="name"
                   name="name"
@@ -153,23 +196,38 @@ export default function CriarConta() {
                   required
                   value={formData.name}
                   onChange={handleChange}
-                  className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
+                  className="block w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
                   placeholder="Seu nome completo"
                 />
               </div>
             </div>
+
+            {/* Renderização Condicional: Campo de Carteirinha para Profissionais */}
+            {formData.accountType === "professional" && (
+              <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                <label htmlFor="carterinha" className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  Nº da Carteirinha (COREN, CRM, etc)
+                </label>
+                <div className="relative">
+                  <input
+                    id="carterinha"
+                    name="carterinha"
+                    type="text"
+                    required={formData.accountType === "professional"}
+                    value={formData.carterinha}
+                    onChange={handleChange}
+                    className="block w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
+                    placeholder="Ex: COREN-SP 123456"
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <label htmlFor="email" className="block text-sm font-semibold text-slate-700 mb-1.5">
                 E-mail
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                    <polyline points="22,6 12,13 2,6" />
-                  </svg>
-                </div>
                 <input
                   id="email"
                   name="email"
@@ -177,7 +235,7 @@ export default function CriarConta() {
                   required
                   value={formData.email}
                   onChange={handleChange}
-                  className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
+                  className="block w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
                   placeholder="seu@email.com"
                 />
               </div>
@@ -188,12 +246,6 @@ export default function CriarConta() {
                 Senha
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                  </svg>
-                </div>
                 <input
                   id="password"
                   name="password"
@@ -201,34 +253,35 @@ export default function CriarConta() {
                   required
                   value={formData.password}
                   onChange={handleChange}
-                  className="block w-full pl-10 pr-10 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
-                  placeholder="Mínimo 8 caracteres"
+                  className="block w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-slate-50 text-slate-900 transition-all sm:text-sm"
+                  placeholder="Mínimo 6 caracteres"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
                 >
-                  {showPassword ? (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                      <line x1="1" y1="1" x2="23" y2="23" />
-                    </svg>
-                  ) : (
-                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  )}
+                  {showPassword ? "Ocultar" : "Mostrar"}
                 </button>
               </div>
             </div>
 
+            {/* Mensagem de Erro */}
+            {erro && (
+              <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm text-center font-medium border border-red-100">
+                {erro}
+              </div>
+            )}
+
             <button
               type="submit"
-              className="w-full flex items-center justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-md shadow-blue-500/20 text-base font-semibold text-white bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-300 hover:-translate-y-0.5 mt-4"
+              disabled={loading}
+              className={`w-full flex items-center justify-center py-3.5 px-4 border border-transparent rounded-xl shadow-md shadow-blue-500/20 text-base font-semibold text-white transition-all duration-300 mt-4 
+                ${loading 
+                  ? "bg-blue-400 cursor-not-allowed" 
+                  : "bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"}`}
             >
-              Criar conta grátis
+              {loading ? "Criando conta..." : "Criar conta grátis"}
             </button>
           </form>
 

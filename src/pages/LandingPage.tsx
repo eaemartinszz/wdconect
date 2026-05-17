@@ -343,7 +343,7 @@ function Hero() {
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center py-12 md:py-20">
           <div className="fade-in-left">
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight mb-6 text-[#0f172a]">
-              Liberdade para trabalhar.{" "}
+               para trabalhar.{" "}
               <span className="gradient-text">Segurança</span> para contratar.
             </h1>
 
@@ -682,8 +682,8 @@ function Testimonials() {
   );
 }
 
-function FAQ() {
-  const [openIndex, setOpenIndex] = useState(null);
+function FAQ                            () {
+ const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   return (
     <section id="faq" className="section-padding bg-muted">
