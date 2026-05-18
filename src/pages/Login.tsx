@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom"; 
-// Importações do Firebase
-import { signInWithEmailAndPassword } from "firebase/auth";
-
-// Para isso (com dois pontos):
+// Importações do Firebase - Adicionamos o sendPasswordResetEmail
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebaseConfig";
-
 
 export default function LoginPage() {
   const navigate = useNavigate(); 
@@ -13,39 +10,59 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
-  // Novos estados para feedback na tela
-  const [erro, setErro] = useState("");
+  // Novo estado de mensagem (substituindo o antigo 'erro' para suportar mensagens de sucesso)
+  const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
   const [loading, setLoading] = useState(false);
 
+  // ================= FUNÇÃO DE LOGIN =================
   const handleSubmit = async (e: React.FormEvent) => {          
     e.preventDefault();
-    setErro(""); // Limpa os erros anteriores
-    setLoading(true); // Inicia o estado de carregamento
+    setMensagem({ tipo: "", texto: "" }); // Limpa mensagens anteriores
+    setLoading(true);
 
     try {
-      // Tenta fazer o login no Firebase
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      
-      // Se deu certo, os dados do usuário ficam aqui (opcional para uso futuro)
       const user = userCredential.user;
       console.log("Login realizado com sucesso:", user.email);
-
-      // Redireciona para o Dashboard
       navigate("/configuracoes");
 
-    } catch (error : any) {
+    } catch (error: any) {
       console.error("Erro no login:", error.code);
       
-      // Tratamento de erros comuns do Firebase
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        setErro("E-mail ou senha incorretos.");
+        setMensagem({ tipo: "erro", texto: "E-mail ou senha incorretos." });
       } else if (error.code === 'auth/invalid-email') {
-        setErro("Formato de e-mail inválido.");
+        setMensagem({ tipo: "erro", texto: "Formato de e-mail inválido." });
       } else {
-        setErro("Ocorreu um erro ao fazer login. Tente novamente.");
+        setMensagem({ tipo: "erro", texto: "Ocorreu um erro ao fazer login. Tente novamente." });
       }
     } finally {
-      setLoading(false); // Para o estado de carregamento
+      setLoading(false);
+    }
+  };
+
+  // ================= FUNÇÃO DE RECUPERAR SENHA =================
+  const handleResetPassword = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    setMensagem({ tipo: "", texto: "" });
+
+    // Verifica se o usuário digitou o e-mail antes de clicar em recuperar
+    if (!email) {
+      setMensagem({ tipo: "erro", texto: "Por favor, digite seu e-mail no campo acima para redefinir a senha." });
+      return;
+    }
+
+    try {
+      // Envia o e-mail de redefinição pelo Firebase
+      await sendPasswordResetEmail(auth, email);
+      setMensagem({ tipo: "sucesso", texto: "E-mail de redefinição enviado! Verifique sua caixa de entrada e a pasta de spam." });
+    } catch (error: any) {
+      console.error("Erro ao redefinir senha:", error.code);
+      if (error.code === 'auth/invalid-email') {
+        setMensagem({ tipo: "erro", texto: "Formato de e-mail inválido." });
+      } else {
+        setMensagem({ tipo: "erro", texto: "Erro ao enviar e-mail de redefinição. Tente novamente." });
+      }
     }
   };
 
@@ -54,7 +71,6 @@ export default function LoginPage() {
       
       {/* ============ LADO ESQUERDO (BRANDING) ============ */}
       <div className="hidden lg:flex flex-col relative w-1/2 bg-gradient-to-br from-[#0c1929] via-[#112240] to-[#0a1628] overflow-hidden p-12 justify-between">
-        {/* Efeitos de Fundo */}
         <div className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-blue-500/30 to-transparent" />
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl" />
@@ -91,7 +107,6 @@ export default function LoginPage() {
       {/* ============ LADO DIREITO (FORMULÁRIO) ============ */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
         
-        {/* Botão Voltar para Início */}
         <a 
           href="/" 
           className="absolute top-6 left-6 sm:top-8 sm:left-8 flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors text-sm font-medium"
@@ -150,9 +165,14 @@ export default function LoginPage() {
                 <label htmlFor="password" className="block text-sm font-semibold text-slate-700">
                   Senha
                 </label>
-                <a href="/esqueci-a-senha" className="text-sm font-medium text-blue-600 hover:text-blue-500 transition-colors">
+                {/* Alterado de <a href...> para um <button> que chama a nossa função nova */}
+                <button 
+                  type="button" 
+                  onClick={handleResetPassword}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-500 transition-colors bg-transparent border-none cursor-pointer"
+                >
                   Esqueci a senha
-                </a>
+                </button>
               </div>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -190,10 +210,10 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Mensagem de Erro (Exibida apenas se a variável 'erro' tiver conteúdo) */}
-            {erro && (
-              <div className="bg-red-50 text-red-500 p-3 rounded-lg text-sm text-center font-medium border border-red-100">
-                {erro}
+            {/* Renderização do Alerta (Sucesso ou Erro) */}
+            {mensagem.texto && (
+              <div className={`p-3 rounded-xl text-sm text-center font-medium border ${mensagem.tipo === 'sucesso' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-500 border-red-100'}`}>
+                {mensagem.texto}
               </div>
             )}
 
