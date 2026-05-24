@@ -1,35 +1,70 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-// Importações do Firebase
-import { auth, db } from "../firebaseConfig";
-import { onAuthStateChanged, signOut, updatePassword } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+
+// Firebase
+import { auth, db, storage } from "../firebaseConfig";
+import {
+  onAuthStateChanged,
+  signOut,
+  updatePassword,
+  deleteUser,
+} from "firebase/auth";
+
+import {
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+} from "firebase/firestore";
+
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+} from "firebase/storage";
 
 export default function DashboardSettings() {
   const navigate = useNavigate();
+
   const [activeTab, setActiveTab] = useState("profile");
-  
-  // Estados de Controle e Feedback
+
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
-  const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
+  const [deletandoConta, setDeletandoConta] = useState(false);
+
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+
+  const [mensagem, setMensagem] = useState({
+    tipo: "",
+    texto: "",
+  });
+
   const [userUid, setUserUid] = useState<string | null>(null);
 
-  // Estados do Perfil
+  // ================= LGPD =================
+  const [showLgpdPopup, setShowLgpdPopup] = useState(false);
+  const [lgpdChecked, setLgpdChecked] = useState(false);
+  const [salvandoLgpd, setSalvandoLgpd] = useState(false);
+
+  // ================= PERFIL =================
   const [profileData, setProfileData] = useState({
     name: "",
     email: "",
     cpf: "",
     phone: "",
     bio: "",
+    photoURL: "",
+    coverURL: "",
   });
 
-  // Estados de Senha (Segurança)
+  // ================= SENHA =================
   const [passwords, setPasswords] = useState({
     newPassword: "",
-    confirmPassword: ""
+    confirmPassword: "",
   });
 
+  // ================= NOTIFICAÇÕES =================
   const [notificacoes, setNotificacoes] = useState({
     app: true,
     email: true,
@@ -37,33 +72,41 @@ export default function DashboardSettings() {
     frequencia: "evento",
   });
 
-  // ================= 1. BUSCAR DADOS AO CARREGAR A TELA =================
+  // ================= BUSCAR DADOS =================
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUserUid(user.uid);
+
         try {
-          // Busca os dados do usuário lá na coleção "usuarios" do Firestore
           const docRef = doc(db, "usuarios", user.uid);
           const docSnap = await getDoc(docRef);
 
           if (docSnap.exists()) {
             const data = docSnap.data();
+
             setProfileData({
-              name: data.nome || "", // Pega o nome que salvamos na criação da conta
-              email: user.email || "", // Pega o email seguro da Autenticação
+              name: data.nome || "",
+              email: user.email || "",
               cpf: data.cpf || "",
               phone: data.telefone || "",
               bio: data.bio || "",
+              photoURL: data.photoURL || "",
+              coverURL: data.coverURL || "",
             });
+
+            if (!data.lgpdAceito) {
+              setShowLgpdPopup(true);
+            }
+          } else {
+            setShowLgpdPopup(true);
           }
         } catch (error) {
-          console.error("Erro ao buscar dados do perfil:", error);
+          console.error(error);
         } finally {
-          setLoading(false); // Para a tela de "Carregando"
+          setLoading(false);
         }
       } else {
-        // Se não tiver ninguém logado, expulsa de volta pro Login
         navigate("/login");
       }
     });
@@ -71,321 +114,698 @@ export default function DashboardSettings() {
     return () => unsubscribe();
   }, [navigate]);
 
-  // ================= 2. SALVAR ALTERAÇÕES NO PERFIL =================
- // ================= 2. SALVAR ALTERAÇÕES NO PERFIL =================
-  const handleSaveProfile = async () => {
-    if (!userUid) return;
-    setSalvando(true);
-    setMensagem({ tipo: "", texto: "" });
+  // ================= UPLOAD FOTO =================
+  const handleImageUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+
+    if (!file || !userUid) return;
+
+    setUploadingImage(true);
 
     try {
-      const docRef = doc(db, "usuarios", userUid);
-      
-      // SUBSTITUA O updateDoc POR setDoc com { merge: true }
-      await setDoc(docRef, {
-        nome: profileData.name,
-        telefone: profileData.phone,
-        bio: profileData.bio,
-      }, { merge: true }); // <-- Isso faz a mágica de criar se não existir!
-      
-      setMensagem({ tipo: "sucesso", texto: "Perfil atualizado com sucesso!" });
-      
-      // Limpa a mensagem após 3 segundos
-      setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
+      const storageRef = ref(storage, `profile_pictures/${userUid}`);
+
+      await uploadBytes(storageRef, file);
+
+      const downloadURL = await getDownloadURL(storageRef);
+
+      setProfileData((prev) => ({
+        ...prev,
+        photoURL: downloadURL,
+      }));
+
+      await setDoc(
+        doc(db, "usuarios", userUid),
+        {
+          photoURL: downloadURL,
+        },
+        { merge: true }
+      );
+
+      setMensagem({
+        tipo: "sucesso",
+        texto: "Foto atualizada com sucesso!",
+      });
     } catch (error) {
-      console.error("Erro ao atualizar:", error);
-      setMensagem({ tipo: "erro", texto: "Erro ao salvar alterações. Tente novamente." });
+      console.error(error);
+
+      setMensagem({
+        tipo: "erro",
+        texto: "Erro ao enviar imagem.",
+      });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // ================= UPLOAD CAPA =================
+  const handleCoverUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+
+    if (!file || !userUid) return;
+
+    setUploadingCover(true);
+
+    try {
+      const storageRef = ref(storage, `cover_pictures/${userUid}`);
+
+      await uploadBytes(storageRef, file);
+
+      const downloadURL = await getDownloadURL(storageRef);
+
+      setProfileData((prev) => ({
+        ...prev,
+        coverURL: downloadURL,
+      }));
+
+      await setDoc(
+        doc(db, "usuarios", userUid),
+        {
+          coverURL: downloadURL,
+        },
+        { merge: true }
+      );
+
+      setMensagem({
+        tipo: "sucesso",
+        texto: "Capa atualizada com sucesso!",
+      });
+    } catch (error) {
+      console.error(error);
+
+      setMensagem({
+        tipo: "erro",
+        texto: "Erro ao enviar capa.",
+      });
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  // ================= LGPD =================
+  const handleAcceptLGPD = async () => {
+    if (!userUid || !lgpdChecked) return;
+
+    setSalvandoLgpd(true);
+
+    try {
+      await setDoc(
+        doc(db, "usuarios", userUid),
+        {
+          lgpdAceito: true,
+          lgpdDataAceite: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      setShowLgpdPopup(false);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSalvandoLgpd(false);
+    }
+  };
+
+  // ================= SALVAR PERFIL =================
+  const handleSaveProfile = async () => {
+    if (!userUid) return;
+
+    setSalvando(true);
+
+    try {
+      await setDoc(
+        doc(db, "usuarios", userUid),
+        {
+          nome: profileData.name,
+          telefone: profileData.phone,
+          bio: profileData.bio,
+        },
+        { merge: true }
+      );
+
+      setMensagem({
+        tipo: "sucesso",
+        texto: "Perfil atualizado!",
+      });
+    } catch (error) {
+      console.error(error);
+
+      setMensagem({
+        tipo: "erro",
+        texto: "Erro ao salvar perfil.",
+      });
     } finally {
       setSalvando(false);
     }
   };
 
-  // ================= 3. ATUALIZAR SENHA =================
+  // ================= SENHA =================
   const handleUpdatePassword = async () => {
     if (passwords.newPassword !== passwords.confirmPassword) {
-      setMensagem({ tipo: "erro", texto: "As novas senhas não coincidem!" });
+      setMensagem({
+        tipo: "erro",
+        texto: "As senhas não coincidem.",
+      });
+
       return;
     }
-    
-    if (auth.currentUser && passwords.newPassword.length >= 6) {
+
+    if (auth.currentUser) {
       try {
-        await updatePassword(auth.currentUser, passwords.newPassword);
-        setMensagem({ tipo: "sucesso", texto: "Senha atualizada com sucesso!" });
-        setPasswords({ newPassword: "", confirmPassword: "" }); // Limpa os campos
-      } catch (error: any) {
-        setMensagem({ tipo: "erro", texto: "Erro ao atualizar senha. Faça login novamente e tente." });
+        await updatePassword(
+          auth.currentUser,
+          passwords.newPassword
+        );
+
+        setMensagem({
+          tipo: "sucesso",
+          texto: "Senha atualizada!",
+        });
+
+        setPasswords({
+          newPassword: "",
+          confirmPassword: "",
+        });
+      } catch (error) {
+        console.error(error);
+
+        setMensagem({
+          tipo: "erro",
+          texto: "Faça login novamente.",
+        });
       }
     }
   };
 
-  // ================= 4. SAIR DA CONTA =================
-  const handleLogout = async () => {
+  // ================= DELETAR CONTA =================
+  const handleDeleteAccount = async () => {
+    const confirmar = window.confirm(
+      "Deseja realmente excluir sua conta?"
+    );
+
+    if (!confirmar || !auth.currentUser || !userUid) return;
+
+    setDeletandoConta(true);
+
     try {
-      await signOut(auth); // Desloga no Firebase
+      await deleteDoc(doc(db, "usuarios", userUid));
+
+      await deleteUser(auth.currentUser);
+
       navigate("/login");
-    } catch (error) {
-      console.error("Erro ao sair:", error);
+    } catch (error: any) {
+      console.error(error);
+
+      setMensagem({
+        tipo: "erro",
+        texto: "Faça login novamente antes de excluir.",
+      });
+    } finally {
+      setDeletandoConta(false);
     }
   };
 
-  // Tela de Carregamento enquanto o Firebase busca os dados
+  // ================= LOGOUT =================
+  const handleLogout = async () => {
+    await signOut(auth);
+
+    navigate("/login");
+  };
+
+  // ================= LOADING =================
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-blue-600 font-semibold flex items-center gap-2">
-          <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
-            <path d="M12 2a10 10 0 0 1 10 10" />
-          </svg>
-          Carregando seu painel...
-        </div>
+      <div className="min-h-screen bg-[#07111F] flex items-center justify-center text-white">
+        Carregando painel...
       </div>
     );
   }
 
-  // ================= TABS =================
-
+  // ================= PROFILE TAB =================
   const renderProfileTab = () => (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-8">
+
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-1">Minha Conta</h2>
-        <p className="text-slate-500 text-sm">Gerencie suas informações pessoais e preferências de notificação.</p>
+        <h1 className="text-3xl font-bold text-white">
+          Minha Conta
+        </h1>
+
+        <p className="text-slate-400 mt-1">
+          Gerencie suas informações pessoais.
+        </p>
       </div>
 
-      {/* Alerta de Sucesso ou Erro */}
       {mensagem.texto && (
-        <div className={`p-4 rounded-xl border font-medium text-sm ${mensagem.tipo === 'sucesso' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+        <div
+          className={`rounded-2xl p-4 border ${
+            mensagem.tipo === "sucesso"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+              : "bg-red-500/10 border-red-500/30 text-red-300"
+          }`}
+        >
           {mensagem.texto}
         </div>
       )}
 
-      {/* Imagens de Perfil e Fundo */}
-      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-        <div className="h-32 bg-gradient-to-r from-blue-100 to-emerald-100 relative group cursor-pointer">
-          <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-            <span className="text-white text-sm font-semibold flex items-center gap-2">
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-              Alterar Capa
-            </span>
+      {/* CARD */}
+      <div className="bg-[#101C2C] border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
+
+        {/* CAPA */}
+        <label
+          htmlFor="upload-cover"
+          className="h-52 block relative cursor-pointer group"
+        >
+          {profileData.coverURL ? (
+            <img
+              src={profileData.coverURL}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-r from-[#0EA5E9] via-[#2563EB] to-[#7C3AED]" />
+          )}
+
+          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+
+            <div className="bg-white/10 backdrop-blur-md border border-white/20 px-5 py-2 rounded-full text-white text-sm font-semibold">
+              Alterar capa
+            </div>
+
           </div>
-        </div>
-        <div className="px-6 pb-6 relative">
-          <div className="w-24 h-24 rounded-full border-4 border-white bg-slate-200 -mt-12 mb-4 relative group cursor-pointer overflow-hidden">
-            <img src={`https://ui-avatars.com/api/?name=${profileData.name || 'Usuário'}&background=0D8ABC&color=fff`} alt="Perfil" className="w-full h-full object-cover" />
+        </label>
+
+        <input
+          type="file"
+          id="upload-cover"
+          className="hidden"
+          accept="image/*"
+          onChange={handleCoverUpload}
+        />
+
+        {/* CONTEÚDO */}
+        <div className="p-8 relative">
+
+          {/* FOTO */}
+          <div className="-mt-24 mb-6">
+
+            <label
+              htmlFor="upload-photo"
+              className="relative group cursor-pointer w-32 h-32 rounded-full border-[5px] border-[#101C2C] overflow-hidden block shadow-2xl"
+            >
+              <img
+                src={
+                  profileData.photoURL ||
+                  `https://ui-avatars.com/api/?name=${profileData.name}`
+                }
+                alt=""
+                className="w-full h-full object-cover"
+              />
+
+              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-sm font-semibold">
+                Editar
+              </div>
+            </label>
+
+            <input
+              type="file"
+              id="upload-photo"
+              className="hidden"
+              accept="image/*"
+              onChange={handleImageUpload}
+            />
           </div>
 
-          <form className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* FORM */}
+          <div className="grid md:grid-cols-2 gap-6">
+
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Nome Completo</label>
-              <input type="text" placeholder="Digite seu nome" value={profileData.name} onChange={(e) => setProfileData({...profileData, name: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Telefone</label>
-              <input type="text" placeholder="(00) 00000-0000" value={profileData.phone} onChange={(e) => setProfileData({...profileData, phone: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-            {/* Campos bloqueados */}
-            <div>
-              <label className="block text-sm font-medium text-slate-500 mb-1.5 flex justify-between">
-                E-mail <span className="text-xs bg-slate-100 px-2 rounded text-slate-500">Não editável</span>
+              <label className="text-sm text-slate-300 mb-2 block">
+                Nome Completo
               </label>
-              <input type="email" placeholder="seu@email.com" value={profileData.email} disabled className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-slate-500 cursor-not-allowed" />
+
+              <input
+                type="text"
+                value={profileData.name}
+                onChange={(e) =>
+                  setProfileData({
+                    ...profileData,
+                    name: e.target.value,
+                  })
+                }
+                className="w-full bg-[#0B1523] border border-white/10 rounded-2xl px-4 py-3 text-white outline-none focus:border-blue-500"
+              />
             </div>
+
             <div>
-              <label className="block text-sm font-medium text-slate-500 mb-1.5 flex justify-between">
-                CPF <span className="text-xs bg-slate-100 px-2 rounded text-slate-500">Não editável</span>
+              <label className="text-sm text-slate-300 mb-2 block">
+                Telefone
               </label>
-              <input type="text" placeholder="000.000.000-00" value={profileData.cpf} disabled className="w-full p-2.5 border border-slate-200 bg-slate-50 rounded-lg text-slate-500 cursor-not-allowed" />
+
+              <input
+                type="text"
+                value={profileData.phone}
+                onChange={(e) =>
+                  setProfileData({
+                    ...profileData,
+                    phone: e.target.value,
+                  })
+                }
+                className="w-full bg-[#0B1523] border border-white/10 rounded-2xl px-4 py-3 text-white outline-none focus:border-blue-500"
+              />
             </div>
+
+            <div>
+              <label className="text-sm text-slate-500 mb-2 block">
+                E-mail
+              </label>
+
+              <input
+                disabled
+                type="email"
+                value={profileData.email}
+                className="w-full bg-[#0B1523] border border-white/5 rounded-2xl px-4 py-3 text-slate-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm text-slate-500 mb-2 block">
+                CPF
+              </label>
+
+              <input
+                disabled
+                type="text"
+                value={profileData.cpf}
+                className="w-full bg-[#0B1523] border border-white/5 rounded-2xl px-4 py-3 text-slate-500"
+              />
+            </div>
+
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Biografia / Resumo</label>
-              <textarea rows={3} placeholder="Escreva algo sobre você..." value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+              <label className="text-sm text-slate-300 mb-2 block">
+                Biografia
+              </label>
+
+              <textarea
+                rows={4}
+                value={profileData.bio}
+                onChange={(e) =>
+                  setProfileData({
+                    ...profileData,
+                    bio: e.target.value,
+                  })
+                }
+                className="w-full bg-[#0B1523] border border-white/10 rounded-2xl px-4 py-3 text-white outline-none resize-none focus:border-blue-500"
+              />
             </div>
-            <div className="md:col-span-2 flex justify-end pt-4">
-              <button 
-                type="button" 
+
+            <div className="md:col-span-2 flex justify-end">
+              <button
                 onClick={handleSaveProfile}
                 disabled={salvando}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors disabled:bg-blue-400"
+                className="bg-gradient-to-r from-blue-600 to-cyan-500 hover:opacity-90 text-white font-semibold px-8 py-3 rounded-2xl transition-all shadow-lg shadow-blue-500/20"
               >
                 {salvando ? "Salvando..." : "Salvar Alterações"}
               </button>
             </div>
-          </form>
-        </div>
-      </div>
 
-      {/* Notificações (mantido apenas visual no momento) */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
-          <svg className="w-5 h-5 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-          </svg>
-          Preferências de Notificação
-        </h3>
-        
-        <div className="grid md:grid-cols-2 gap-8">
-          <div>
-            <p className="text-sm font-medium text-slate-700 mb-3">Canais de Recebimento</p>
-            <div className="space-y-3">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={notificacoes.app} onChange={(e) => setNotificacoes({...notificacoes, app: e.target.checked})} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
-                <span className="text-slate-600 text-sm">Notificações no Aplicativo (Push)</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={notificacoes.email} onChange={(e) => setNotificacoes({...notificacoes, email: e.target.checked})} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
-                <span className="text-slate-600 text-sm">E-mail</span>
-              </label>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={notificacoes.whatsapp} onChange={(e) => setNotificacoes({...notificacoes, whatsapp: e.target.checked})} className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
-                <span className="text-slate-600 text-sm">WhatsApp</span>
-              </label>
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-700 mb-3">Frequência</p>
-            <select 
-              value={notificacoes.frequencia}
-              onChange={(e) => setNotificacoes({...notificacoes, frequencia: e.target.value})}
-              className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm"
-            >
-              <option value="evento">Imediato (A cada evento/mensagem)</option>
-              <option value="diario">Resumo Diário</option>
-              <option value="programado">Programado (Somente em dias úteis)</option>
-            </select>
           </div>
         </div>
       </div>
     </div>
   );
 
+  // ================= SECURITY TAB =================
   const renderSecurityTab = () => (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-8">
+
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-1">Segurança e Acesso</h2>
-        <p className="text-slate-500 text-sm">Mantenha sua conta segura e gerencie suas credenciais.</p>
+        <h1 className="text-3xl font-bold text-white">
+          Segurança
+        </h1>
+
+        <p className="text-slate-400 mt-1">
+          Atualize sua senha e gerencie sua conta.
+        </p>
       </div>
 
-      {mensagem.texto && (
-        <div className={`p-4 rounded-xl border font-medium text-sm ${mensagem.tipo === 'sucesso' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-          {mensagem.texto}
-        </div>
-      )}
+      <div className="bg-[#101C2C] border border-white/10 rounded-3xl p-8">
 
-      {/* Alterar Senha */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row gap-8">
-        <div className="flex-1 space-y-4">
+        <div className="grid gap-5">
+
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Nova Senha</label>
-            <input 
-              type="password" 
-              placeholder="••••••••" 
+            <label className="text-sm text-slate-300 mb-2 block">
+              Nova Senha
+            </label>
+
+            <input
+              type="password"
               value={passwords.newPassword}
-              onChange={(e) => setPasswords({...passwords, newPassword: e.target.value})}
-              className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+              onChange={(e) =>
+                setPasswords({
+                  ...passwords,
+                  newPassword: e.target.value,
+                })
+              }
+              className="w-full bg-[#0B1523] border border-white/10 rounded-2xl px-4 py-3 text-white"
             />
           </div>
+
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirmar Nova Senha</label>
-            <input 
-              type="password" 
-              placeholder="••••••••" 
+            <label className="text-sm text-slate-300 mb-2 block">
+              Confirmar Senha
+            </label>
+
+            <input
+              type="password"
               value={passwords.confirmPassword}
-              onChange={(e) => setPasswords({...passwords, confirmPassword: e.target.value})}
-              className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
+              onChange={(e) =>
+                setPasswords({
+                  ...passwords,
+                  confirmPassword: e.target.value,
+                })
+              }
+              className="w-full bg-[#0B1523] border border-white/10 rounded-2xl px-4 py-3 text-white"
             />
           </div>
-          <button 
-            type="button" 
+
+          <button
             onClick={handleUpdatePassword}
-            className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-medium transition-colors w-full md:w-auto mt-2"
+            className="bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-semibold py-3 rounded-2xl mt-2"
           >
             Atualizar Senha
           </button>
+
         </div>
-        
-        {/* Política de Senha */}
-        <div className="md:w-72 bg-slate-50 p-5 rounded-xl border border-slate-100 h-fit">
-          <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
-            <svg className="w-4 h-4 text-emerald-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            Política de Segurança
-          </h4>
-          <ul className="text-xs text-slate-600 space-y-2">
-            <li className="flex items-center gap-2"><div className="w-1 h-1 bg-slate-400 rounded-full"></div>Mínimo de 6 caracteres</li>
-          </ul>
-        </div>
+      </div>
+
+      {/* ZONA DE PERIGO */}
+      <div className="bg-red-500/10 border border-red-500/20 rounded-3xl p-8">
+
+        <h2 className="text-xl font-bold text-red-400 mb-3">
+          Zona de Perigo
+        </h2>
+
+        <p className="text-red-200/80 text-sm mb-5">
+          Excluir sua conta removerá permanentemente todos os seus dados.
+        </p>
+
+        <button
+          onClick={handleDeleteAccount}
+          disabled={deletandoConta}
+          className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-2xl font-semibold"
+        >
+          {deletandoConta
+            ? "Excluindo..."
+            : "Excluir Conta"}
+        </button>
       </div>
     </div>
   );
 
+  // ================= COMPLIANCE =================
   const renderComplianceTab = () => (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-8">
+
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-1">Conformidade e Privacidade</h2>
-        <p className="text-slate-500 text-sm">Gerencie seus dados e revise nossos termos (Adequação à LGPD).</p>
+        <h1 className="text-3xl font-bold text-white">
+          Privacidade e LGPD
+        </h1>
+
+        <p className="text-slate-400 mt-1">
+          Informações relacionadas à privacidade.
+        </p>
       </div>
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-          <h3 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Documentos Legais</h3>
-          <p className="text-sm text-slate-500">Você aceitou os termos de uso na criação da sua conta.</p>
-        </div>
+
+      <div className="bg-[#101C2C] border border-white/10 rounded-3xl p-8">
+        <p className="text-slate-300 leading-relaxed">
+          Seus dados são protegidos conforme a Lei Geral de Proteção de Dados (LGPD).
+        </p>
       </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
-      
-      {/* MENU LATERAL (SIDEBAR) */}
-      <aside className="w-full md:w-64 bg-white border-r border-slate-200 md:min-h-screen flex flex-col">
-        <div className="p-6 border-b border-slate-100 hidden md:block">
-          <a href="/" className="flex items-center gap-2 group">
-            <img src="/logowd.png" alt="Logo" className="w-8 h-8 object-contain" />
-            <span className="font-montserrat font-bold text-lg tracking-tight text-slate-900">
-              <span className="text-blue-600">WD</span> Conecta
-            </span>
-          </a>
+    <div className="min-h-screen bg-[#07111F] flex text-white">
+
+      {/* SIDEBAR */}
+      <aside className="w-72 bg-[#0B1523] border-r border-white/10 hidden md:flex flex-col">
+
+        {/* LOGO */}
+        <div className="p-7 border-b border-white/10">
+          <div className="flex items-center gap-3">
+
+            <img
+              src="/logowd.png"
+              alt=""
+              className="w-10 h-10"
+            />
+
+            <div>
+              <h1 className="font-bold text-xl">
+                WD Conecta
+              </h1>
+
+              <p className="text-xs text-slate-400">
+                Dashboard Premium
+              </p>
+            </div>
+
+          </div>
         </div>
 
-        <nav className="flex-1 p-4 flex md:flex-col gap-1 overflow-x-auto md:overflow-visible">
-          <button onClick={() => setActiveTab("profile")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === "profile" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
+        {/* MENU */}
+        <div className="flex-1 p-5 space-y-2">
+
+          <button
+            onClick={() => navigate("/conectar")}
+            className="w-full flex items-center gap-3 bg-gradient-to-r from-blue-600 to-cyan-500 text-white px-5 py-4 rounded-2xl font-semibold shadow-lg shadow-blue-500/20"
+          >
+            Conexões e Chat
+          </button>
+
+          <button
+            onClick={() => setActiveTab("profile")}
+            className={`w-full text-left px-5 py-4 rounded-2xl transition ${
+              activeTab === "profile"
+                ? "bg-white/10 border border-white/10"
+                : "hover:bg-white/5"
+            }`}
+          >
             Minha Conta
           </button>
-          <button onClick={() => setActiveTab("security")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === "security" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-            Segurança e Acesso
-          </button>
-          <button onClick={() => setActiveTab("compliance")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${activeTab === "compliance" ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"}`}>
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
-            Privacidade e LGPD
-          </button>
-        </nav>
 
-        <div className="p-4 border-t border-slate-100 hidden md:block">
-          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-sm font-medium text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors">
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
-            Sair da conta
+          <button
+            onClick={() => setActiveTab("security")}
+            className={`w-full text-left px-5 py-4 rounded-2xl transition ${
+              activeTab === "security"
+                ? "bg-white/10 border border-white/10"
+                : "hover:bg-white/5"
+            }`}
+          >
+            Segurança
           </button>
+
+          <button
+            onClick={() => setActiveTab("compliance")}
+            className={`w-full text-left px-5 py-4 rounded-2xl transition ${
+              activeTab === "compliance"
+                ? "bg-white/10 border border-white/10"
+                : "hover:bg-white/5"
+            }`}
+          >
+            LGPD
+          </button>
+
+        </div>
+
+        {/* LOGOUT */}
+        <div className="p-5 border-t border-white/10">
+
+          <button
+            onClick={handleLogout}
+            className="w-full bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-300 py-3 rounded-2xl font-semibold"
+          >
+            Sair da Conta
+          </button>
+
         </div>
       </aside>
 
-      {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-      <main className="flex-1 p-6 md:p-10 lg:px-16 xl:px-24 overflow-y-auto">
-        <div className="max-w-4xl mx-auto">
+      {/* MAIN */}
+      <main className="flex-1 p-8 md:p-12 overflow-y-auto">
+
+        <div className="max-w-5xl mx-auto">
+
           {activeTab === "profile" && renderProfileTab()}
+
           {activeTab === "security" && renderSecurityTab()}
+
           {activeTab === "compliance" && renderComplianceTab()}
+
         </div>
+
       </main>
 
+      {/* MODAL LGPD */}
+      {showLgpdPopup && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-5">
+
+          <div className="bg-[#101C2C] border border-white/10 rounded-3xl max-w-xl w-full p-8">
+
+            <h2 className="text-3xl font-bold mb-4">
+              Termos e Privacidade
+            </h2>
+
+            <p className="text-slate-300 leading-relaxed mb-6">
+              Para continuar utilizando a plataforma,
+              você precisa aceitar os termos de uso e
+              política de privacidade da plataforma.
+            </p>
+
+            <label className="flex items-start gap-3 mb-6 cursor-pointer">
+
+              <input
+                type="checkbox"
+                checked={lgpdChecked}
+                onChange={(e) =>
+                  setLgpdChecked(e.target.checked)
+                }
+                className="mt-1"
+              />
+
+              <span className="text-slate-300 text-sm">
+                Li e concordo com os termos e política de privacidade.
+              </span>
+
+            </label>
+
+            <div className="flex gap-4">
+
+              <button
+                onClick={handleAcceptLGPD}
+                disabled={!lgpdChecked || salvandoLgpd}
+                className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-500 text-white py-3 rounded-2xl font-semibold"
+              >
+                {salvandoLgpd
+                  ? "Salvando..."
+                  : "Aceitar e Continuar"}
+              </button>
+
+              <button
+                onClick={handleLogout}
+                className="px-6 bg-white/5 border border-white/10 rounded-2xl"
+              >
+                Sair
+              </button>
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

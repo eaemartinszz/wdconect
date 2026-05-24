@@ -1,7 +1,9 @@
 // firebaseConfig.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth"; 
+import { getAuth } from "firebase/auth";
+import { getStorage } from "firebase/storage";
+
 
 // Substitua com as credenciais do seu projeto Firebase
 const firebaseConfig = {
@@ -18,3 +20,4 @@ const app = initializeApp(firebaseConfig);
 // Inicializa o Cloud Firestore e exporta para usar em outras partes do projeto
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const storage = getStorage(app); 
