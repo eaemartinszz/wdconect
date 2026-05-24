@@ -12,9 +12,9 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/criar-conta" element={<CriarConta />} />
-        <Route path="/" element={<DashboardSettings />} /> {/* <-- Adicione a nova rota aqui */}
+        <Route path="/configuracoes" element={<DashboardSettings />} /> {/* <-- Adicione a nova rota aqui */}
         <Route path="/conectar" element={<ConectarPage />} />
       </Routes>
     </Router>
   );
-}
+}                                                                  
