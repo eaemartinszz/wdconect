@@ -118,7 +118,12 @@ export default function CriarConta() {
         userData
       );
 
-      navigate("/configuracoes");
+      // ================= REDIRECIONAMENTO =================
+      if (formData.accountType === "professional") {
+        navigate("/dashboard-profissional");
+      } else {
+        navigate("/configuracoes");
+      }
 
     } catch (error: any) {
       console.error(error);

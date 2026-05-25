@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom"; 
-// Importações do Firebase - Adicionamos o sendPasswordResetEmail
+// Importações do Firebase
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../firebaseConfig";
+import { doc, getDoc } from "firebase/firestore"; // Importações adicionadas para buscar o tipo de conta
+import { auth, db } from "../firebaseConfig"; // db adicionado
 
 export default function LoginPage() {
   const navigate = useNavigate(); 
@@ -24,7 +25,17 @@ export default function LoginPage() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log("Login realizado com sucesso:", user.email);
-      navigate("/configuracoes");
+      
+      // Busca os dados do usuário no banco de dados para saber o tipo de conta
+      const docRef = doc(db, "usuarios", user.uid);
+      const docSnap = await getDoc(docRef);
+
+      // Redireciona dependendo do tipo de conta (profissional ou família)
+      if (docSnap.exists() && docSnap.data().tipoConta === "professional") {
+        navigate("/dashboard-profissional");
+      } else {
+        navigate("/configuracoes");
+      }
 
     } catch (error: any) {
       console.error("Erro no login:", error.code);
@@ -165,7 +176,6 @@ export default function LoginPage() {
                 <label htmlFor="password" className="block text-sm font-semibold text-slate-700">
                   Senha
                 </label>
-                {/* Alterado de <a href...> para um <button> que chama a nossa função nova */}
                 <button 
                   type="button" 
                   onClick={handleResetPassword}
