@@ -1,6 +1,8 @@
+
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-// Importações do Firebase
+
+// Firebase
 import { auth, db } from "../firebaseConfig";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { 
@@ -17,6 +19,7 @@ import {
   setDoc
 } from "firebase/firestore";
 
+// ================= INTERFACES =================
 interface Servico {
   id: string;
   familiaId: string;
@@ -46,6 +49,9 @@ interface Conversa {
 export default function DashboardProfissional() {
   const navigate = useNavigate();
   
+  // Menu Mobile Toggle
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   // Estados Globais
   const [activeTab, setActiveTab] = useState<"agenda" | "chat">("agenda");
   const [userUid, setUserUid] = useState<string | null>(null);
@@ -78,12 +84,13 @@ export default function DashboardProfissional() {
   // ================= 1. VERIFICAR AUTENTICAÇÃO E CARREGAR DADOS =================
   useEffect(() => {
     let unsubscribeSnapshot: () => void;
+    let unsubConversas: () => void;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setUserUid(user.uid);
         
-        // Pega todos os dados do Profissional para preencher o formulário
+        // Pega todos os dados do Profissional
         const docSnap = await getDoc(doc(db, "usuarios", user.uid));
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -110,7 +117,24 @@ export default function DashboardProfissional() {
         });
 
         // Iniciar escuta das conversas (Chat)
-        ouvirConversas(user.uid);
+        const qConversas = query(collection(db, "conversas"), where("participantes", "array-contains", user.uid));
+        unsubConversas = onSnapshot(qConversas, async (snapshot) => {
+          const listaConversas: Conversa[] = [];
+          for (const docSnap of snapshot.docs) {
+            const dados = docSnap.data();
+            const idDestinatario = dados.participantes.find((p: string) => p !== user.uid);
+            const userDoc = await getDoc(doc(db, "usuarios", idDestinatario));
+            
+            listaConversas.push({
+              id: docSnap.id,
+              participantes: dados.participantes,
+              ultimaMensagem: dados.ultimaMensagem || "",
+              nomeDestinatario: userDoc.exists() ? userDoc.data().nome : "Família",
+              fotoDestinatario: userDoc.exists() ? userDoc.data().photoURL : ""
+            });
+          }
+          setConversas(listaConversas);
+        });
 
       } else {
         navigate("/login");
@@ -120,6 +144,7 @@ export default function DashboardProfissional() {
     return () => {
       unsubscribeAuth();
       if (unsubscribeSnapshot) unsubscribeSnapshot();
+      if (unsubConversas) unsubConversas();
     };
   }, [navigate]);
 
@@ -173,8 +198,8 @@ export default function DashboardProfissional() {
         cidade: profileData.cidade,
       });
 
-      setNome(profileData.name); // Atualiza instantaneamente o nome na barra lateral
-      setShowProfileModal(false); // Fecha o modal popup
+      setNome(profileData.name); 
+      setShowProfileModal(false); 
       alert("Perfil atualizado com sucesso!");
     } catch (error) {
       console.error("Erro ao salvar perfil profissional:", error);
@@ -185,27 +210,6 @@ export default function DashboardProfissional() {
   };
 
   // ================= LÓGICA DO CHAT INTERNO =================
-  const ouvirConversas = (uidLogado: string) => {
-    const q = query(collection(db, "conversas"), where("participantes", "array-contains", uidLogado));
-    return onSnapshot(q, async (snapshot) => {
-      const listaConversas: Conversa[] = [];
-      for (const docSnap of snapshot.docs) {
-        const dados = docSnap.data();
-        const idDestinatario = dados.participantes.find((p: string) => p !== uidLogado);
-        const userDoc = await getDoc(doc(db, "usuarios", idDestinatario));
-        
-        listaConversas.push({
-          id: docSnap.id,
-          participantes: dados.participantes,
-          ultimaMensagem: dados.ultimaMensagem || "",
-          nomeDestinatario: userDoc.exists() ? userDoc.data().nome : "Família",
-          fotoDestinatario: userDoc.exists() ? userDoc.data().photoURL : ""
-        });
-      }
-      setConversas(listaConversas);
-    });
-  };
-
   useEffect(() => {
     if (!activeChatId) return;
     const q = query(collection(db, "conversas", activeChatId, "mensagens"), orderBy("criadoEm", "asc"));
@@ -226,6 +230,7 @@ export default function DashboardProfissional() {
     setActiveChatId(chatId);
     setActiveChatUser({ id: chatId, participantes: [familiaId, userUid], nomeDestinatario: nomeFamilia });
     setActiveTab("chat");
+    setIsMobileMenuOpen(false);
   };
 
   const handleEnviarMensagem = async (e: React.FormEvent) => {
@@ -247,57 +252,65 @@ export default function DashboardProfissional() {
     } catch (error) { console.error("Erro ao enviar mensagem:", error); }
   };
 
+  // ================= NAVEGAÇÃO MOBILE =================
+  const changeTab = (tab: any) => {
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
+  };
+
   // ================= ABA: AGENDA DE SERVIÇOS =================
   const renderAgenda = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 mb-1">Meus Serviços</h2>
-        <p className="text-slate-500 text-sm">Gerencie suas contratações, agendamentos e status de trabalho.</p>
+        <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">Meus Serviços</h2>
+        <p className="text-slate-400 text-sm md:text-base">Gerencie suas contratações, agendamentos e status de trabalho.</p>
       </div>
 
-      <div className="grid gap-4">
+      <div className="grid gap-4 md:gap-5">
         {loading ? (
           <div className="text-center py-10 text-slate-500">Carregando sua agenda...</div>
         ) : servicos.length === 0 ? (
-          <div className="text-center py-10 bg-white border border-slate-200 rounded-2xl">
-            <p className="text-slate-500 font-medium">Você ainda não possui nenhum serviço agendado.</p>
+          <div className="bg-[#101C2C] border border-white/10 rounded-3xl p-8 md:p-10 text-center text-slate-400 text-sm md:text-base">
+            Você ainda não possui nenhum serviço agendado.
           </div>
         ) : (
           servicos.map((servico) => (
-            <div key={servico.id} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:shadow-md transition-all">
+            <div key={servico.id} className="bg-[#101C2C] border border-white/10 p-5 md:p-6 rounded-3xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 transition-all">
               
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <h3 className="font-bold text-slate-800 text-lg">{servico.familia || "Família"}</h3>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                    servico.status === 'Confirmado' ? 'bg-emerald-100 text-emerald-700' :
-                    servico.status === 'Reagendado' ? 'bg-orange-100 text-orange-700' :
-                    servico.status === 'Pendente' ? 'bg-blue-100 text-blue-700' :
-                    'bg-slate-100 text-slate-700'
+              <div className="w-full">
+                <div className="flex items-center gap-3 mb-3">
+                  <h3 className="font-bold text-white text-lg md:text-xl">{servico.familia || "Família"}</h3>
+                  <span className={`px-3 py-1 rounded-full text-[10px] md:text-xs font-bold uppercase tracking-wider ${
+                    servico.status === 'Confirmado' ? 'bg-emerald-500/20 text-emerald-400' :
+                    servico.status === 'Reagendado' ? 'bg-orange-500/20 text-orange-400' :
+                    servico.status === 'Pendente' ? 'bg-blue-500/20 text-blue-400' :
+                    'bg-white/10 text-slate-300'
                   }`}>
                     {servico.status}
                   </span>
                 </div>
-                <p className="text-sm text-slate-600 mb-1"><strong>Serviço:</strong> {servico.servico} - {servico.valor}</p>
-                <p className="text-sm text-slate-600 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <p className="text-sm text-slate-400 mb-1"><strong>Serviço:</strong> {servico.servico}</p>
+                <p className="text-sm text-slate-400 mb-1 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                   {servico.data} às {servico.hora}
                 </p>
+                <p className="text-sm md:text-base text-cyan-400 font-bold mt-2">{servico.valor || ""}</p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto mt-2 md:mt-0">
                 {servico.status === "Pendente" && (
-                  <button onClick={() => alterarStatus(servico.id, "Confirmado")} className="flex-1 md:flex-none px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl transition-colors">
+                  <button onClick={() => alterarStatus(servico.id, "Confirmado")} className="w-full sm:w-auto px-5 py-3 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 text-sm font-semibold rounded-xl transition-colors">
                     Aceitar
                   </button>
                 )}
-                {servico.status !== "Concluído" && (
-                  <button onClick={() => handleReagendar(servico.id)} className="flex-1 md:flex-none px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl transition-colors">
+                {servico.status !== "Concluído" && servico.status !== "Cancelado" && (
+                  <button onClick={() => handleReagendar(servico.id)} className="w-full sm:w-auto px-5 py-3 border border-white/10 hover:bg-white/5 text-slate-300 text-sm font-semibold rounded-xl transition-colors">
                     Reagendar
                   </button>
                 )}
-                <button onClick={() => handleAbrirChatComFamilia(servico.familiaId, servico.familia)} className="flex items-center justify-center p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors" title="Conversar com a Família">
-                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <button onClick={() => handleAbrirChatComFamilia(servico.familiaId, servico.familia)} className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:opacity-90 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
+                  <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  Conversar
                 </button>
               </div>
 
@@ -308,21 +321,23 @@ export default function DashboardProfissional() {
     </div>
   );
 
-  // ================= ABA: CHAT COM FAMÍLIAS =================
+  // ================= ABA: CHAT RESPONSIVO =================
   const renderChat = () => (
-    <div className="flex flex-col md:flex-row h-[75vh] w-full bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm animate-in fade-in duration-500">
-      <aside className="w-full md:w-80 border-r border-slate-200 bg-slate-50 flex flex-col">
-        <div className="p-4 border-b border-slate-200 bg-white"><h2 className="font-bold text-slate-800">Suas conversas</h2></div>
-        <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+    <div className="flex flex-col md:flex-row h-[75vh] min-h-[500px] w-full bg-[#101C2C] rounded-[32px] border border-white/10 overflow-hidden shadow-2xl animate-in fade-in duration-500 relative">
+      
+      {/* Lista de Conversas (Escondida no mobile se um chat estiver aberto) */}
+      <aside className={`w-full md:w-80 border-r border-white/10 bg-black/20 flex-col ${activeChatId ? "hidden md:flex" : "flex"}`}>
+        <div className="p-5 border-b border-white/10"><h2 className="font-black text-lg text-white">Mensagens</h2></div>
+        <div className="flex-1 overflow-y-auto">
           {conversas.length === 0 ? (
-            <div className="p-6 text-center text-slate-400 text-sm">Nenhuma conversa ativa. As famílias aparecerão aqui quando entrarem em contato.</div>
+            <div className="p-6 text-center text-slate-500 text-sm">Nenhuma conversa ativa. As famílias aparecerão aqui quando entrarem em contato.</div>
           ) : (
             conversas.map((chat) => (
-              <button key={chat.id} onClick={() => { setActiveChatId(chat.id); setActiveChatUser(chat); }} className={`w-full p-4 flex items-center gap-3 text-left transition-colors ${activeChatId === chat.id ? "bg-blue-50" : "hover:bg-slate-100/50"}`}>
-                <img src={chat.fotoDestinatario || `https://ui-avatars.com/api/?name=${chat.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-10 h-10 rounded-full object-cover" />
+              <button key={chat.id} onClick={() => { setActiveChatId(chat.id); setActiveChatUser(chat); }} className={`w-full p-4 flex items-center gap-4 text-left transition-colors border-b border-white/5 ${activeChatId === chat.id ? "bg-cyan-500/10" : "hover:bg-white/5"}`}>
+                <img src={chat.fotoDestinatario || `https://ui-avatars.com/api/?name=${chat.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-12 h-12 rounded-full object-cover border border-white/10" />
                 <div className="overflow-hidden flex-1">
-                  <h4 className="font-bold text-slate-900 text-sm truncate">{chat.nomeDestinatario}</h4>
-                  <p className="text-xs text-slate-500 truncate mt-0.5">{chat.ultimaMensagem || "Iniciar conversa..."}</p>
+                  <h4 className="font-bold text-white text-sm truncate">{chat.nomeDestinatario}</h4>
+                  <p className="text-xs text-slate-400 truncate mt-1">{chat.ultimaMensagem || "Iniciar conversa..."}</p>
                 </div>
               </button>
             ))
@@ -330,20 +345,24 @@ export default function DashboardProfissional() {
         </div>
       </aside>
 
-      <section className="flex-1 bg-slate-50/50 flex flex-col justify-between relative">
+      {/* Área da Conversa (Escondida no mobile se nenhum chat estiver selecionado) */}
+      <section className={`flex-1 flex-col bg-black/10 ${!activeChatId ? "hidden md:flex" : "flex"}`}>
         {activeChatId && activeChatUser ? (
           <>
-            <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center gap-3 shadow-sm z-10">
-              <img src={activeChatUser.fotoDestinatario || `https://ui-avatars.com/api/?name=${activeChatUser.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-10 h-10 rounded-full object-cover" />
-              <h3 className="font-bold text-slate-800">{activeChatUser.nomeDestinatario}</h3>
+            <div className="border-b border-white/10 px-4 md:px-6 py-4 flex items-center gap-3 md:gap-4 bg-white/5">
+              <button onClick={() => { setActiveChatId(null); setActiveChatUser(null); }} className="md:hidden text-slate-300 hover:text-white p-2">
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </button>
+              <img src={activeChatUser.fotoDestinatario || `https://ui-avatars.com/api/?name=${activeChatUser.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-10 h-10 rounded-full object-cover border border-white/10" />
+              <h3 className="font-bold text-white text-base md:text-lg truncate">{activeChatUser.nomeDestinatario}</h3>
             </div>
 
-            <div className="flex-1 p-6 overflow-y-auto space-y-4 bg-slate-100">
+            <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-4">
               {mensagens.map((msg) => {
                 const souEu = msg.enviadoPor === userUid;
                 return (
                   <div key={msg.id} className={`flex w-full ${souEu ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-md rounded-2xl px-4 py-2.5 shadow-sm text-sm border ${souEu ? "bg-[#0a1628] text-white border-[#0a1628] rounded-tr-none" : "bg-white text-slate-800 border-slate-200 rounded-tl-none"}`}>
+                    <div className={`max-w-[85%] md:max-w-md rounded-2xl px-4 md:px-5 py-2 md:py-3 text-sm ${souEu ? "bg-cyan-500 text-[#07111F] rounded-tr-none font-medium" : "bg-white/10 text-white rounded-tl-none border border-white/5"}`}>
                       <p className="leading-relaxed break-words">{msg.texto}</p>
                     </div>
                   </div>
@@ -352,115 +371,141 @@ export default function DashboardProfissional() {
               <div ref={chatEndRef} />
             </div>
 
-            <form onSubmit={handleEnviarMensagem} className="p-4 bg-white border-t border-slate-200 flex items-center gap-3 z-10">
-              <input type="text" value={inputMensagem} onChange={(e) => setInputMensagem(e.target.value)} placeholder="Digite sua mensagem..." className="flex-1 p-3 border border-slate-300 rounded-xl bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white text-sm transition-all" />
-              <button type="submit" disabled={!inputMensagem.trim()} className="bg-blue-600 text-white p-3 rounded-xl shadow-md hover:bg-blue-700 transition-all disabled:opacity-50">Enviar</button>
+            <form onSubmit={handleEnviarMensagem} className="p-3 md:p-5 border-t border-white/10 bg-white/5 flex items-center gap-2 md:gap-3">
+              <input type="text" value={inputMensagem} onChange={(e) => setInputMensagem(e.target.value)} placeholder="Digite sua mensagem..." className="flex-1 px-4 md:px-5 py-3 md:py-3.5 rounded-xl bg-black/40 border border-white/10 text-white outline-none focus:border-cyan-400 transition-all text-sm" />
+              <button type="submit" disabled={!inputMensagem.trim()} className="bg-cyan-500 text-[#07111F] px-4 md:px-6 py-3 md:py-3.5 rounded-xl font-bold hover:bg-cyan-400 transition-colors disabled:opacity-50">
+                 <span className="hidden md:inline">Enviar</span>
+                 <svg className="w-5 h-5 md:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
             </form>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center p-8 text-center text-slate-400">
-            <p className="font-medium text-slate-500">Selecione uma família na lista lateral para conversar.</p>
-          </div>
+          <div className="flex-1 flex items-center justify-center p-8 text-center text-slate-500 text-sm md:text-base font-medium">Selecione uma conversa ao lado.</div>
         )}
       </section>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans relative">
+    <div className="min-h-screen bg-[#07111F] flex flex-col md:flex-row text-white font-sans relative overflow-x-hidden">
       
-      {/* ================= MODAL POPUP: EDITAR PERFIL DO PROFISSIONAL ================= */}
+      {/* BG EFFECTS */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute top-[-200px] left-[-100px] w-[300px] md:w-[500px] h-[300px] md:h-[500px] bg-cyan-500/5 rounded-full blur-3xl" />
+        <div className="absolute bottom-[-200px] right-[-100px] w-[300px] md:w-[500px] h-[300px] md:h-[500px] bg-blue-600/5 rounded-full blur-3xl" />
+      </div>
+
+      {/* MOBILE HEADER */}
+      <div className="md:hidden flex items-center justify-between bg-[#0B1523] p-4 border-b border-white/10 sticky top-0 z-40">
+        <div className="flex items-center gap-2">
+          <img src="/logowd.png" alt="Logo" className="w-8 h-8" />
+          <h1 className="font-bold text-lg">WD <span className="text-cyan-400">Pro</span></h1>
+        </div>
+        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-white p-2">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+        </button>
+      </div>
+
+      {/* MOBILE OVERLAY */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setIsMobileMenuOpen(false)} />
+      )}
+
+      {/* MODAL POPUP: EDITAR PERFIL DO PROFISSIONAL */}
       {showProfileModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 sm:p-8 animate-in fade-in zoom-in-95 duration-300 relative text-slate-900">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#101C2C] border border-white/10 rounded-3xl shadow-2xl max-w-lg w-full p-6 md:p-8 animate-in fade-in duration-300 relative text-white">
             
-            <button onClick={() => setShowProfileModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors">
+            <button onClick={() => setShowProfileModal(false)} className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors">
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
 
-            <h2 className="text-2xl font-black text-slate-900 mb-2">Editar Meu Perfil Professional</h2>
-            <p className="text-slate-500 text-sm mb-6">Mantenha os seus dados atualizados para que as famílias o encontrem mais facilmente.</p>
+            <h2 className="text-2xl font-black mb-2">Editar Meu Perfil</h2>
+            <p className="text-slate-400 text-sm mb-6">Mantenha os seus dados atualizados para as famílias.</p>
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">Nome Completo</label>
-                <input type="text" required value={profileData.name} onChange={(e) => setProfileData({...profileData, name: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm bg-slate-50" />
+                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Nome Completo</label>
+                <input type="text" required value={profileData.name} onChange={(e) => setProfileData({...profileData, name: e.target.value})} className="w-full px-4 py-3 bg-[#0B1523] border border-white/10 rounded-xl outline-none focus:border-cyan-400 transition-all text-sm" />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">Telefone</label>
-                  <input type="text" required value={profileData.phone} onChange={(e) => setProfileData({...profileData, phone: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm bg-slate-50" />
+                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Telefone</label>
+                  <input type="text" required value={profileData.phone} onChange={(e) => setProfileData({...profileData, phone: e.target.value})} className="w-full px-4 py-3 bg-[#0B1523] border border-white/10 rounded-xl outline-none focus:border-cyan-400 transition-all text-sm" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">Cidade</label>
-                  <input type="text" required value={profileData.cidade} onChange={(e) => setProfileData({...profileData, cidade: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm bg-slate-50" />
+                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Cidade</label>
+                  <input type="text" required value={profileData.cidade} onChange={(e) => setProfileData({...profileData, cidade: e.target.value})} className="w-full px-4 py-3 bg-[#0B1523] border border-white/10 rounded-xl outline-none focus:border-cyan-400 transition-all text-sm" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">Carteirinha (COREN, etc)</label>
-                  <input type="text" required value={profileData.carterinha} onChange={(e) => setProfileData({...profileData, carterinha: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm bg-slate-50" />
+                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Carteirinha</label>
+                  <input type="text" required value={profileData.carterinha} onChange={(e) => setProfileData({...profileData, carterinha: e.target.value})} className="w-full px-4 py-3 bg-[#0B1523] border border-white/10 rounded-xl outline-none focus:border-cyan-400 transition-all text-sm placeholder:text-slate-600" placeholder="Ex: COREN..." />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">Especialidade</label>
-                  <input type="text" required value={profileData.especialidade} onChange={(e) => setProfileData({...profileData, especialidade: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm bg-slate-50" />
+                  <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Especialidade</label>
+                  <input type="text" required value={profileData.especialidade} onChange={(e) => setProfileData({...profileData, especialidade: e.target.value})} className="w-full px-4 py-3 bg-[#0B1523] border border-white/10 rounded-xl outline-none focus:border-cyan-400 transition-all text-sm placeholder:text-slate-600" placeholder="Ex: Enfermeiro" />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1 uppercase tracking-wider">Biografia / Resumo</label>
-                <textarea rows={3} value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} className="w-full px-4 py-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm bg-slate-50 resize-none" placeholder="Fale um pouco sobre a sua experiência de trabalho..." />
+                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Biografia / Resumo</label>
+                <textarea rows={3} value={profileData.bio} onChange={(e) => setProfileData({...profileData, bio: e.target.value})} className="w-full px-4 py-3 bg-[#0B1523] border border-white/10 rounded-xl outline-none focus:border-cyan-400 transition-all text-sm resize-none placeholder:text-slate-600" placeholder="Fale um pouco sobre a sua experiência..." />
               </div>
 
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowProfileModal(false)} className="flex-1 h-12 rounded-xl border-2 border-slate-200 font-bold text-sm text-slate-600 hover:bg-slate-50 transition-colors">
+              <div className="flex gap-3 pt-4">
+                <button type="button" onClick={() => setShowProfileModal(false)} className="flex-1 h-12 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 font-bold text-sm text-white transition-colors">
                   Cancelar
                 </button>
-                <button type="submit" disabled={salvandoPerfil} className="flex-1 h-12 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm transition-colors disabled:opacity-50">
-                  {salvandoPerfil ? "A guardar..." : "Salvar Alterações"}
+                <button type="submit" disabled={salvandoPerfil} className="flex-1 h-12 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold text-sm transition-all hover:opacity-90 disabled:opacity-50">
+                  {salvandoPerfil ? "Salvando..." : "Salvar Alterações"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-      {/* ================= FIM DO MODAL POPUP ================= */}
 
-      {/* MENU LATERAL EXCLUSIVO DO PROFISSIONAL */}
-      <aside className="w-full md:w-64 bg-[#0a1628] text-white flex flex-col min-h-screen">
-        <div className="p-6 border-b border-white/10">
-           <span className="font-bold text-xl tracking-tight"><span className="text-blue-400">WD</span> Profissional</span>
-           <p className="text-sm text-slate-400 mt-1">Olá, {nome || 'Especialista'}</p>
+      {/* SIDEBAR (Desktop & Mobile) */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0B1523] border-r border-white/10 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 flex flex-col ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        
+        <div className="p-7 border-b border-white/10 hidden md:block">
+           <span className="font-bold text-xl tracking-tight"><span className="text-cyan-400">WD</span> Profissional</span>
+           <p className="text-xs text-slate-400 mt-1">Olá, {nome || 'Especialista'}</p>
         </div>
         
-        <nav className="flex-1 p-4 flex flex-col gap-2">
-          <button onClick={() => setActiveTab("agenda")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === "agenda" ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
+        <nav className="flex-1 p-5 flex flex-col gap-2 overflow-y-auto">
+          
+          <button onClick={() => changeTab("agenda")} className={`flex items-center gap-3 px-5 py-4 rounded-2xl text-sm font-medium transition-colors ${activeTab === "agenda" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Agenda e Serviços
           </button>
           
-          <button onClick={() => setActiveTab("chat")} className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors ${activeTab === "chat" ? "bg-blue-600 text-white shadow-md" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
+          <button onClick={() => changeTab("chat")} className={`flex items-center gap-3 px-5 py-4 rounded-2xl text-sm font-medium transition-colors ${activeTab === "chat" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-             Chat com Famílias
-             {conversas.length > 0 && <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse ml-auto" />}
+             Mensagens
+             {conversas.length > 0 && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse ml-auto" />}
           </button>
 
-          {/* O BOTÃO QUE ANTES IA PARA O OUTRO DASH, AGORA ABRE O POPUP DIRETAMENTE */}
-          <button onClick={() => setShowProfileModal(true)} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors text-slate-300 hover:bg-white/10 hover:text-white mt-auto">
+          <button onClick={() => setShowProfileModal(true)} className="flex items-center gap-3 px-5 py-4 rounded-2xl text-sm font-medium transition-colors text-slate-300 hover:bg-white/5 hover:text-white mt-4 md:mt-auto border border-dashed border-white/10">
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             Editar Perfil
           </button>
           
-          <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors text-red-400 hover:bg-red-500/10 hover:text-red-300">
+        </nav>
+
+        <div className="p-5 border-t border-white/10">
+          <button onClick={handleLogout} className="flex items-center justify-center gap-3 w-full bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 py-4 rounded-2xl text-sm font-semibold transition-colors">
             Sair da Conta
           </button>
-        </nav>
+        </div>
       </aside>
 
       {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-      <main className="flex-1 p-6 md:p-10 lg:px-16 xl:px-24 overflow-y-auto">
+      <main className="flex-1 p-4 sm:p-6 md:p-8 lg:p-12 overflow-y-auto z-10 w-full h-[calc(100vh-73px)] md:h-screen">
         <div className="max-w-5xl mx-auto w-full">
           {activeTab === "agenda" && renderAgenda()}
           {activeTab === "chat" && renderChat()}
@@ -470,3 +515,4 @@ export default function DashboardProfissional() {
     </div>
   );
 }
+
