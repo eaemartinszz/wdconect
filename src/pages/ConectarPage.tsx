@@ -1,5 +1,4 @@
 
-
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -66,16 +65,18 @@ export default function ConectarPage() {
   const [currentUid, setCurrentUid] = useState<string | null>(null);
   const [nomeFamilia, setNomeFamilia] = useState("Família");
 
-  // Estados de Agendamento
+  // Estados de Agendamento e Profissionais
   const [profissionais, setProfissionais] = useState<Usuario[]>([]);
+  const [mediasAvaliacao, setMediasAvaliacao] = useState<Record<string, { media: number, total: number }>>({});
   const [loadingProfissionais, setLoadingProfissionais] = useState(true);
+  
   const [planoSelecionado, setPlanoSelecionado] = useState<Plano | null>(null);
   const [profissionalSelecionado, setProfissionalSelecionado] = useState<Usuario | null>(null);
   const [diaSelecionado, setDiaSelecionado] = useState<string>("");
   const [diasOcupados, setDiasOcupados] = useState<string[]>([]);
   const [pagamentoLiberado, setPagamentoLiberado] = useState(false);
   
-  // ================= ESTADO DO FILTRO DE BUSCA =================
+  // Estado do Filtro de Busca
   const [buscaTermo, setBuscaTermo] = useState("");
 
   // Estados do Modal de Detalhes do Profissional
@@ -104,7 +105,7 @@ export default function ConectarPage() {
       if (user) {
         setCurrentUid(user.uid);
         
-        // Busca o nome da Família para salvar no agendamento depois
+        // Busca o nome da Família
         const docSnap = await getDoc(doc(db, "usuarios", user.uid));
         if (docSnap.exists()) setNomeFamilia(docSnap.data().nome);
 
@@ -116,11 +117,11 @@ export default function ConectarPage() {
     });
     return () => unsubscribe();
   }, []);
-  
 
-  // ================= BUSCAR PROFISSIONAIS =================
+  // ================= BUSCAR PROFISSIONAIS E AVALIAÇÕES =================
   const buscarProfissionais = async () => {
     try {
+      // 1. Busca Profissionais
       const q = query(collection(db, "usuarios"), where("tipoConta", "==", "professional"));
       const querySnapshot = await getDocs(q);
       const lista: Usuario[] = [];
@@ -128,12 +129,33 @@ export default function ConectarPage() {
         lista.push({ id: doc.id, ...doc.data() } as Usuario);
       });
       setProfissionais(lista);
-    } catch (error) { console.error(error); } 
-    finally { setLoadingProfissionais(false); }
+
+      // 2. Busca e Calcula Avaliações
+      const avaliacoesSnap = await getDocs(collection(db, "avaliacoes"));
+      const stats: Record<string, { soma: number, count: number }> = {};
+      
+      avaliacoesSnap.forEach((doc) => {
+        const data = doc.data();
+        if (!stats[data.profissionalId]) stats[data.profissionalId] = { soma: 0, count: 0 };
+        stats[data.profissionalId].soma += data.nota;
+        stats[data.profissionalId].count += 1;
+      });
+
+      const novasMedias: Record<string, { media: number, total: number }> = {};
+      Object.keys(stats).forEach(id => {
+        novasMedias[id] = { media: stats[id].soma / stats[id].count, total: stats[id].count };
+      });
+      
+      setMediasAvaliacao(novasMedias);
+
+    } catch (error) { 
+      console.error(error); 
+    } finally { 
+      setLoadingProfissionais(false); 
+    }
   };
 
   // ================= LÓGICA DO FILTRO =================
-  // Filtra os profissionais com base no termo digitado (Nome, Especialidade ou Cidade)
   const profissionaisFiltrados = profissionais.filter((prof) => {
     const termo = buscaTermo.toLowerCase();
     const nome = prof.nome?.toLowerCase() || "";
@@ -160,7 +182,7 @@ export default function ConectarPage() {
       const q = query(collection(db, "agendamentos"), where("profissionalId", "==", profissionalSelecionado.id));
       const querySnapshot = await getDocs(q);
       const ocupados: string[] = [];
-      querySnapshot.forEach((doc) => { ocupados.push(doc.data().data); }); // Atualizado para 'data' em vez de 'dia'
+      querySnapshot.forEach((doc) => { ocupados.push(doc.data().data); });
       setDiasOcupados(ocupados);
     };
     buscarDias();
@@ -263,7 +285,7 @@ export default function ConectarPage() {
       setProfissionalSelecionado(profissionalModal);
       setDiaSelecionado("");
       setPagamentoLiberado(false);
-      setProfissionalModal(null); // Fecha o modal
+      setProfissionalModal(null);
     }
   };
 
@@ -293,9 +315,18 @@ export default function ConectarPage() {
                   <p className="text-cyan-400 font-bold text-lg">{profissionalModal.especialidade || "Profissional WD"}</p>
                 </div>
                 
-                <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
-                  <svg className="w-4 h-4 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                  <span className="text-sm font-semibold">{profissionalModal.cidade || "Cidade não informada"}</span>
+                <div className="flex flex-col md:items-end gap-2">
+                  <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-xl">
+                    <svg className="w-4 h-4 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    <span className="text-sm font-semibold">{profissionalModal.cidade || "Cidade não informada"}</span>
+                  </div>
+
+                  {mediasAvaliacao[profissionalModal.id] && (
+                    <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/20 px-3 py-1.5 rounded-xl">
+                      <span className="text-yellow-400 font-black text-lg">★ {mediasAvaliacao[profissionalModal.id].media.toFixed(1)}</span>
+                      <span className="text-slate-400 text-xs">({mediasAvaliacao[profissionalModal.id].total} avaliações)</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -313,7 +344,6 @@ export default function ConectarPage() {
                     {profissionalModal.bio || "Este profissional ainda não adicionou um resumo biográfico. No entanto, passou por nossa verificação de segurança."}
                   </p>
                 </div>
-                
               </div>
 
               <div className="mt-8 flex gap-4">
@@ -507,7 +537,6 @@ export default function ConectarPage() {
                       <div key={prof.id} className={`group overflow-hidden rounded-[32px] border transition-all duration-300 ${ativo ? "border-cyan-400 bg-cyan-500/10" : "border-white/10 bg-white/5 hover:border-cyan-400/30"}`}>
                         
                         <div className="h-28 bg-gradient-to-r from-blue-600 to-cyan-500 relative">
-                           {/* Botão de Ver Detalhes Flutuante no Header */}
                            <button 
                              onClick={(e) => { e.stopPropagation(); setProfissionalModal(prof); }}
                              className="absolute top-4 right-4 bg-black/30 hover:bg-black/50 text-white backdrop-blur-md px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
@@ -523,7 +552,18 @@ export default function ConectarPage() {
                         <div className="p-7 pt-4 flex flex-col justify-between h-[230px]">
                           <div className="cursor-pointer" onClick={() => { setProfissionalSelecionado(prof); setDiaSelecionado(""); setPagamentoLiberado(false); }}>
                             <h3 className="text-2xl font-black">{prof.nome}</h3>
-                            <p className="text-cyan-400 font-semibold mt-1">{prof.especialidade || "Profissional WD"}</p>
+                            
+                            {/* EXIBIÇÃO DAS ESTRELAS NO CARD PRINCIPAL */}
+                            <div className="flex items-center gap-2 mt-1">
+                                <p className="text-cyan-400 font-semibold">{prof.especialidade || "Profissional WD"}</p>
+                                {mediasAvaliacao[prof.id] && (
+                                   <span className="text-yellow-400 text-sm font-bold bg-yellow-500/10 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                     ★ {mediasAvaliacao[prof.id].media.toFixed(1)} 
+                                     <span className="text-slate-500 font-normal text-xs">({mediasAvaliacao[prof.id].total})</span>
+                                   </span>
+                                )}
+                            </div>
+
                             <p className="text-slate-300 text-sm mt-3 leading-relaxed line-clamp-2">{prof.bio || "Profissional verificado e disponível."}</p>
                           </div>
                           
