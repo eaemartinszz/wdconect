@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom"; 
 // Importações do Firebase
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore"; // Importações adicionadas para buscar o tipo de conta
-import { auth, db } from "../firebaseConfig"; // db adicionado
+import { doc, getDoc } from "firebase/firestore"; 
+import { auth, db } from "../firebaseConfig"; 
 
 export default function LoginPage() {
   const navigate = useNavigate(); 
@@ -11,22 +11,33 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   
-  // Novo estado de mensagem (substituindo o antigo 'erro' para suportar mensagens de sucesso)
   const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
   const [loading, setLoading] = useState(false);
 
   // ================= FUNÇÃO DE LOGIN =================
   const handleSubmit = async (e: React.FormEvent) => {          
     e.preventDefault();
-    setMensagem({ tipo: "", texto: "" }); // Limpa mensagens anteriores
+    setMensagem({ tipo: "", texto: "" }); 
     setLoading(true);
+
+    // ================= VERIFICAÇÃO ADMIN (MODO TESTE) =================
+    // Se for um administrador e a senha for "123456", entra direto sem consultar o Firebase
+    if (
+      (email === "gabiespin34@gmail.com" || email === "victor.piaget1906@gmail.com") && 
+      password === "@123456"
+    ) {
+      console.log("Login ADMIN de teste realizado com sucesso:", email);
+      navigate("/admin");
+      setLoading(false);
+      return; // Interrompe a execução para não continuar com o login normal
+    }
 
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log("Login realizado com sucesso:", user.email);
       
-      // Busca os dados do usuário no banco de dados para saber o tipo de conta
+      // Busca os dados do usuário no banco de dados para saber o tipo de conta normal
       const docRef = doc(db, "usuarios", user.uid);
       const docSnap = await getDoc(docRef);
 

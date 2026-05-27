@@ -7,6 +7,7 @@ import CriarConta from "./pages/CriarConta";
 import DashboardSettings from "./pages/dahsboard"; 
 import ConectarPage from "./pages/ConectarPage";
 import DashboardProfissional from "./pages/DashboardProfissional";
+import DashboardAdmin from "./pages/DashboardAdmin";
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/configuracoes" element={<DashboardSettings />} /> 
         <Route path="/conectar" element={<ConectarPage />} />
         <Route path="/dashboard-profissional" element={<DashboardProfissional />} />
+        <Route path="/admin" element={<DashboardAdmin />} />
       </Routes>
     </Router>
   );
