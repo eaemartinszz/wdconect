@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 
 // Firebase
 import { auth, db, storage } from "../firebaseConfig";
@@ -42,6 +43,7 @@ interface Servico {
   hora: string;
   status: string;
   valor: string;
+  avaliado?: boolean; // <-- NOVO CAMPO
 }
 
 interface Mensagem {
@@ -62,19 +64,15 @@ interface Conversa {
 export default function DashboardSettings() {
   const navigate = useNavigate();
 
-  // Menu Mobile Toggle
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  const [activeTab, setActiveTab] = useState<"profile" | "agenda" | "chat" | "security" | "compliance">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "agenda" | "chat" | "security" | "compliance">("agenda");
 
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [deletandoConta, setDeletandoConta] = useState(false);
-
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
 
-  const [mensagem, setMensagem] = useState({ tipo: "", texto: "" });
   const [userUid, setUserUid] = useState<string | null>(null);
 
   // ================= ESTADO DOS AGENDAMENTOS =================
@@ -87,6 +85,12 @@ export default function DashboardSettings() {
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [inputMensagem, setInputMensagem] = useState("");
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // ================= ESTADOS DE AVALIAÇÃO =================
+  const [servicoAvaliar, setServicoAvaliar] = useState<Servico | null>(null);
+  const [nota, setNota] = useState(0);
+  const [comentarioAvaliacao, setComentarioAvaliacao] = useState("");
+  const [enviandoAvaliacao, setEnviandoAvaliacao] = useState(false);
 
   // ================= LGPD =================
   const [showLgpdPopup, setShowLgpdPopup] = useState(false);
@@ -204,7 +208,7 @@ export default function DashboardSettings() {
     setActiveChatId(chatId);
     setActiveChatUser({ id: chatId, participantes: [userUid, profissionalId], nomeDestinatario: nomeDestinatario });
     setActiveTab("chat");
-    setIsMobileMenuOpen(false); // Fecha o menu mobile se estiver aberto
+    setIsMobileMenuOpen(false);
   };
 
   const handleEnviarMensagem = async (e: React.FormEvent) => {
@@ -236,12 +240,45 @@ export default function DashboardSettings() {
     if (window.confirm("Deseja realmente cancelar este serviço?")) {
       try {
         await updateDoc(doc(db, "agendamentos", id), { status: "Cancelado" });
-        setMensagem({ tipo: "sucesso", texto: "Serviço cancelado com sucesso." });
-        setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
+        toast.success("Serviço cancelado com sucesso!");
       } catch (error) {
-        console.error(error);
-        setMensagem({ tipo: "erro", texto: "Erro ao cancelar o serviço." });
+        toast.error("Erro ao cancelar o serviço.");
       }
+    }
+  };
+
+  // ================= ENVIAR AVALIAÇÃO =================
+  const handleEnviarAvaliacao = async () => {
+    if (!servicoAvaliar || !userUid) return;
+    if (nota === 0) {
+      toast.error("Por favor, selecione uma nota de 1 a 5 estrelas.");
+      return;
+    }
+
+    setEnviandoAvaliacao(true);
+    try {
+      await addDoc(collection(db, "avaliacoes"), {
+        profissionalId: servicoAvaliar.profissionalId,
+        familiaId: userUid,
+        agendamentoId: servicoAvaliar.id,
+        nota: nota,
+        comentario: comentarioAvaliacao,
+        criadoEm: serverTimestamp()
+      });
+
+      await updateDoc(doc(db, "agendamentos", servicoAvaliar.id), {
+        avaliado: true
+      });
+
+      toast.success("Avaliação enviada com sucesso! Obrigado.");
+      setServicoAvaliar(null);
+      setNota(0);
+      setComentarioAvaliacao("");
+    } catch (error) {
+      console.error(error);
+      toast.error("Erro ao enviar avaliação.");
+    } finally {
+      setEnviandoAvaliacao(false);
     }
   };
 
@@ -256,10 +293,9 @@ export default function DashboardSettings() {
       const downloadURL = await getDownloadURL(storageRef);
       setProfileData((prev) => ({ ...prev, photoURL: downloadURL }));
       await setDoc(doc(db, "usuarios", userUid), { photoURL: downloadURL }, { merge: true });
-      setMensagem({ tipo: "sucesso", texto: "Foto atualizada!" });
-      setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
+      toast.success("Foto de perfil atualizada!"); 
     } catch (error) {
-      setMensagem({ tipo: "erro", texto: "Erro ao enviar imagem." });
+      toast.error("Erro ao enviar imagem."); 
     } finally { setUploadingImage(false); }
   };
 
@@ -273,21 +309,23 @@ export default function DashboardSettings() {
       const downloadURL = await getDownloadURL(storageRef);
       setProfileData((prev) => ({ ...prev, coverURL: downloadURL }));
       await setDoc(doc(db, "usuarios", userUid), { coverURL: downloadURL }, { merge: true });
-      setMensagem({ tipo: "sucesso", texto: "Capa atualizada!" });
-      setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
+      toast.success("Capa atualizada com sucesso!"); 
     } catch (error) {
-      setMensagem({ tipo: "erro", texto: "Erro ao enviar capa." });
+      toast.error("Erro ao enviar capa."); 
     } finally { setUploadingCover(false); }
   };
 
-  // ================= ACOES BASICAS =================
+  // ================= AÇÕES BÁSICAS =================
   const handleAcceptLGPD = async () => {
     if (!userUid || !lgpdChecked) return;
     setSalvandoLgpd(true);
     try {
       await setDoc(doc(db, "usuarios", userUid), { lgpdAceito: true, lgpdDataAceite: new Date().toISOString() }, { merge: true });
       setShowLgpdPopup(false);
-    } catch (error) {} finally { setSalvandoLgpd(false); }
+      toast.success("Termos de privacidade aceites!");
+    } catch (error) {
+      toast.error("Erro ao salvar consentimento.");
+    } finally { setSalvandoLgpd(false); }
   };
 
   const handleSaveProfile = async () => {
@@ -295,23 +333,25 @@ export default function DashboardSettings() {
     setSalvando(true);
     try {
       await setDoc(doc(db, "usuarios", userUid), { nome: profileData.name, telefone: profileData.phone, bio: profileData.bio }, { merge: true });
-      setMensagem({ tipo: "sucesso", texto: "Perfil atualizado!" });
-      setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
-    } catch (error) { setMensagem({ tipo: "erro", texto: "Erro ao salvar." }); } finally { setSalvando(false); }
+      toast.success("Perfil atualizado com sucesso!"); 
+    } catch (error) { 
+      toast.error("Erro ao salvar alterações."); 
+    } finally { setSalvando(false); }
   };
 
   const handleUpdatePassword = async () => {
     if (passwords.newPassword !== passwords.confirmPassword) {
-      setMensagem({ tipo: "erro", texto: "As senhas não coincidem." });
+      toast.error("As senhas não coincidem."); 
       return;
     }
     if (auth.currentUser) {
       try {
         await updatePassword(auth.currentUser, passwords.newPassword);
-        setMensagem({ tipo: "sucesso", texto: "Senha atualizada!" });
-        setTimeout(() => setMensagem({ tipo: "", texto: "" }), 3000);
+        toast.success("Senha atualizada com sucesso!"); 
         setPasswords({ newPassword: "", confirmPassword: "" });
-      } catch (error) { setMensagem({ tipo: "erro", texto: "Faça login novamente." }); }
+      } catch (error) { 
+        toast.error("Sessão expirada. Faça login novamente para alterar a senha."); 
+      }
     }
   };
 
@@ -323,12 +363,13 @@ export default function DashboardSettings() {
       await deleteDoc(doc(db, "usuarios", userUid));
       await deleteUser(auth.currentUser);
       navigate("/login");
-    } catch (error: any) { setMensagem({ tipo: "erro", texto: "Faça login novamente antes de excluir." }); } finally { setDeletandoConta(false); }
+    } catch (error: any) { 
+      toast.error("Autenticação necessária. Faça login novamente antes de excluir."); 
+    } finally { setDeletandoConta(false); }
   };
 
   const handleLogout = async () => { await signOut(auth); navigate("/login"); };
 
-  // ================= NAVEGAÇÃO MOBILE =================
   const changeTab = (tab: any) => {
     setActiveTab(tab);
     setIsMobileMenuOpen(false);
@@ -336,19 +377,12 @@ export default function DashboardSettings() {
 
   // ================= TABS COMPONENTS =================
 
-  // 1. ABA DE AGENDAMENTOS
   const renderAgendaTab = () => (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-white">Meus Agendamentos</h1>
         <p className="text-sm md:text-base text-slate-400 mt-1">Acompanhe os serviços que você contratou.</p>
       </div>
-
-      {mensagem.texto && (
-        <div className={`rounded-2xl p-4 border text-sm ${mensagem.tipo === "sucesso" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-red-500/10 border-red-500/30 text-red-300"}`}>
-          {mensagem.texto}
-        </div>
-      )}
 
       <div className="grid gap-5">
         {servicos.length === 0 ? (
@@ -365,6 +399,7 @@ export default function DashboardSettings() {
                     s.status === 'Confirmado' ? 'bg-emerald-500/20 text-emerald-400' :
                     s.status === 'Reagendado' ? 'bg-orange-500/20 text-orange-400' :
                     s.status === 'Cancelado' ? 'bg-red-500/20 text-red-400' :
+                    s.status === 'Concluído' ? 'bg-purple-500/20 text-purple-400' :
                     'bg-cyan-500/20 text-cyan-400'
                   }`}>
                     {s.status}
@@ -376,12 +411,24 @@ export default function DashboardSettings() {
               </div>
 
               <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto mt-2 md:mt-0">
+                {/* Botão Cancelar */}
                 {s.status !== "Cancelado" && s.status !== "Concluído" && (
                   <button 
                     onClick={() => cancelarServico(s.id)}
                     className="w-full sm:w-auto px-5 py-3 border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-xl text-sm font-semibold transition-colors"
                   >
                     Cancelar
+                  </button>
+                )}
+
+                {/* NOVO: Botão Avaliar */}
+                {s.status === "Concluído" && !s.avaliado && (
+                  <button 
+                    onClick={() => setServicoAvaliar(s)}
+                    className="w-full sm:w-auto px-5 py-3 border border-blue-500/40 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    Avaliar Serviço
                   </button>
                 )}
                 
@@ -400,16 +447,13 @@ export default function DashboardSettings() {
     </div>
   );
 
-  // 2. ABA DO CHAT RESPONSIVO
   const renderChatTab = () => (
     <div className="flex flex-col md:flex-row h-[75vh] min-h-[500px] w-full bg-[#101C2C] rounded-[32px] border border-white/10 overflow-hidden shadow-2xl animate-in fade-in duration-500 relative">
-      
-      {/* Lista de Conversas (Escondida no mobile se um chat estiver aberto) */}
       <aside className={`w-full md:w-80 border-r border-white/10 bg-black/20 flex-col ${activeChatId ? "hidden md:flex" : "flex"}`}>
         <div className="p-5 border-b border-white/10"><h2 className="font-black text-lg text-white">Mensagens</h2></div>
         <div className="flex-1 overflow-y-auto">
           {conversas.length === 0 ? (
-            <div className="p-6 text-center text-slate-500 text-sm">Nenhuma conversa ativa.</div>
+            <div className="p-6 text-center text-slate-500 text-sm">Nenhuma conversa activa.</div>
           ) : (
             conversas.map((chat) => (
               <button key={chat.id} onClick={() => { setActiveChatId(chat.id); setActiveChatUser(chat); }} className={`w-full p-4 flex items-center gap-4 text-left transition-colors border-b border-white/5 ${activeChatId === chat.id ? "bg-cyan-500/10" : "hover:bg-white/5"}`}>
@@ -424,12 +468,10 @@ export default function DashboardSettings() {
         </div>
       </aside>
 
-      {/* Área da Conversa (Escondida no mobile se nenhum chat estiver selecionado) */}
       <section className={`flex-1 flex-col bg-black/10 ${!activeChatId ? "hidden md:flex" : "flex"}`}>
         {activeChatId && activeChatUser ? (
           <>
             <div className="border-b border-white/10 px-4 md:px-6 py-4 flex items-center gap-3 md:gap-4 bg-white/5">
-              {/* Botão de voltar apenas no Mobile */}
               <button onClick={() => { setActiveChatId(null); setActiveChatUser(null); }} className="md:hidden text-slate-300 hover:text-white p-2">
                 <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
               </button>
@@ -466,19 +508,12 @@ export default function DashboardSettings() {
     </div>
   );
 
-  // 3. ABA DE PERFIL ORIGINAL
   const renderProfileTab = () => (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500">
       <div>
         <h1 className="text-2xl md:text-3xl font-bold text-white">Minha Conta</h1>
         <p className="text-sm md:text-base text-slate-400 mt-1">Gerencie suas informações pessoais.</p>
       </div>
-
-      {mensagem.texto && (
-        <div className={`rounded-2xl p-4 border text-sm ${mensagem.tipo === "sucesso" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" : "bg-red-500/10 border-red-500/30 text-red-300"}`}>
-          {mensagem.texto}
-        </div>
-      )}
 
       <div className="bg-[#101C2C] border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
         <label htmlFor="upload-cover" className="h-32 md:h-52 block relative cursor-pointer group">
@@ -540,7 +575,6 @@ export default function DashboardSettings() {
     </div>
   );
 
-  // 4. ABA SECURITY
   const renderSecurityTab = () => (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500">
       <div>
@@ -574,7 +608,6 @@ export default function DashboardSettings() {
     </div>
   );
 
-  // 5. ABA COMPLIANCE
   const renderComplianceTab = () => (
     <div className="space-y-6 md:space-y-8 animate-in fade-in duration-500">
       <div>
@@ -592,6 +625,49 @@ export default function DashboardSettings() {
   return (
     <div className="min-h-screen bg-[#07111F] flex flex-col md:flex-row text-white font-sans relative overflow-x-hidden">
 
+      {/* MODAL DE AVALIAÇÃO */}
+      {servicoAvaliar && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-[#101C2C] border border-white/10 rounded-3xl max-w-md w-full p-8 shadow-2xl relative animate-in fade-in zoom-in-95 duration-300">
+            
+            <button onClick={() => setServicoAvaliar(null)} className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+
+            <h2 className="text-2xl font-black text-white mb-2">Avaliar Serviço</h2>
+            <p className="text-slate-400 text-sm mb-6">Como foi o seu atendimento com <strong>{servicoAvaliar.profissionalNome}</strong>?</p>
+
+            <div className="flex justify-center gap-2 mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button 
+                  key={star} 
+                  onClick={() => setNota(star)}
+                  className={`transition-all transform hover:scale-110 ${nota >= star ? "text-yellow-400" : "text-slate-600"}`}
+                >
+                  <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                </button>
+              ))}
+            </div>
+
+            <textarea 
+              rows={3} 
+              value={comentarioAvaliacao} 
+              onChange={(e) => setComentarioAvaliacao(e.target.value)}
+              className="w-full bg-[#0B1523] border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-cyan-400 transition-all text-sm resize-none placeholder:text-slate-600 mb-6" 
+              placeholder="Deixe um comentário (opcional)..."
+            />
+
+            <button 
+              onClick={handleEnviarAvaliacao} 
+              disabled={enviandoAvaliacao}
+              className="w-full h-14 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white font-bold transition-all hover:opacity-90 disabled:opacity-50"
+            >
+              {enviandoAvaliacao ? "Enviando..." : "Enviar Avaliação"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* BG EFFECTS */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-[-200px] left-[-100px] w-[300px] md:w-[500px] h-[300px] md:h-[500px] bg-cyan-500/5 rounded-full blur-3xl" />
@@ -608,14 +684,12 @@ export default function DashboardSettings() {
         </button>
       </div>
 
-      {/* MOBILE OVERLAY */}
       {isMobileMenuOpen && (
         <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
-      {/* SIDEBAR (Desktop & Mobile) */}
+      {/* SIDEBAR */}
       <aside className={`fixed inset-y-0 left-0 z-50 w-72 bg-[#0B1523] border-r border-white/10 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 flex flex-col ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"}`}>
-
         <div className="p-7 border-b border-white/10 hidden md:block">
           <div className="flex items-center gap-3">
             <img src="/logowd.png" alt="" className="w-10 h-10" />
@@ -626,62 +700,31 @@ export default function DashboardSettings() {
           </div>
         </div>
 
-        {/* MENU */}
         <div className="flex-1 p-5 space-y-2 overflow-y-auto">
-
-          <button
-            onClick={() => navigate("/conectar")}
-            className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 to-cyan-500 text-white px-5 py-4 rounded-2xl font-semibold shadow-lg shadow-blue-500/20 mb-4 hover:scale-[1.02] transition-transform text-sm"
-          >
+          <button onClick={() => navigate("/conectar")} className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 to-cyan-500 text-white px-5 py-4 rounded-2xl font-semibold shadow-lg shadow-blue-500/20 mb-4 hover:scale-[1.02] transition-transform text-sm">
             Contratar Novo Serviço
           </button>
 
-          <button
-            onClick={() => changeTab("agenda")}
-            className={`w-full text-left px-5 py-4 rounded-2xl transition flex items-center justify-between text-sm ${
-              activeTab === "agenda" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"
-            }`}
-          >
+          <button onClick={() => changeTab("agenda")} className={`w-full text-left px-5 py-4 rounded-2xl transition flex items-center justify-between text-sm ${activeTab === "agenda" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
             Meus Agendamentos
           </button>
 
-          <button
-            onClick={() => changeTab("chat")}
-            className={`w-full text-left px-5 py-4 rounded-2xl transition flex items-center justify-between text-sm ${
-              activeTab === "chat" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"
-            }`}
-          >
+          <button onClick={() => changeTab("chat")} className={`w-full text-left px-5 py-4 rounded-2xl transition flex items-center justify-between text-sm ${activeTab === "chat" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
             Mensagens
             {conversas.length > 0 && <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />}
           </button>
 
-          <button
-            onClick={() => changeTab("profile")}
-            className={`w-full text-left px-5 py-4 rounded-2xl transition text-sm ${
-              activeTab === "profile" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"
-            }`}
-          >
+          <button onClick={() => changeTab("profile")} className={`w-full text-left px-5 py-4 rounded-2xl transition text-sm ${activeTab === "profile" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
             Minha Conta
           </button>
 
-          <button
-            onClick={() => changeTab("security")}
-            className={`w-full text-left px-5 py-4 rounded-2xl transition text-sm ${
-              activeTab === "security" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"
-            }`}
-          >
+          <button onClick={() => changeTab("security")} className={`w-full text-left px-5 py-4 rounded-2xl transition text-sm ${activeTab === "security" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
             Segurança
           </button>
 
-          <button
-            onClick={() => changeTab("compliance")}
-            className={`w-full text-left px-5 py-4 rounded-2xl transition text-sm ${
-              activeTab === "compliance" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"
-            }`}
-          >
+          <button onClick={() => changeTab("compliance")} className={`w-full text-left px-5 py-4 rounded-2xl transition text-sm ${activeTab === "compliance" ? "bg-white/10 border border-white/10 font-bold text-white" : "hover:bg-white/5 text-slate-300"}`}>
             LGPD
           </button>
-
         </div>
 
         <div className="p-5 border-t border-white/10">
@@ -705,18 +748,18 @@ export default function DashboardSettings() {
       {/* MODAL LGPD */}
       {showLgpdPopup && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4 md:p-5">
-          <div className="bg-[#101C2C] border border-white/10 rounded-3xl max-w-xl w-full p-6 md:p-8 shadow-2xl">
-            <h2 className="text-2xl md:text-3xl font-bold mb-4 text-white">Termos e Privacidade</h2>
-            <p className="text-sm md:text-base text-slate-300 leading-relaxed mb-6">Para continuar utilizando a plataforma, você precisa aceitar os termos de uso e política de privacidade da plataforma.</p>
+          <div className="bg-[#101C2C] border border-white/10 rounded-3xl max-w-xl w-full p-8 shadow-2xl">
+            <h2>Termos e Privacidade</h2>
+            <p>Para continuar utilizando a plataforma, você precisa aceitar os termos de uso e política de privacidade.</p>
             <label className="flex items-start gap-3 mb-6 cursor-pointer">
               <input type="checkbox" checked={lgpdChecked} onChange={(e) => setLgpdChecked(e.target.checked) } className="mt-1 w-4 h-4" />
-              <span className="text-slate-300 text-xs md:text-sm">Li e concordo com os termos e política de privacidade.</span>
+              <span>Li e concordo com os termos e política de privacidade.</span>
             </label>
-            <div className="flex flex-col sm:flex-row gap-3 md:gap-4">
-              <button onClick={handleAcceptLGPD} disabled={!lgpdChecked || salvandoLgpd} className="w-full sm:flex-1 bg-gradient-to-r from-blue-600 to-cyan-500 text-white py-3 rounded-2xl font-semibold text-sm md:text-base disabled:opacity-50">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button onClick={handleAcceptLGPD} disabled={!lgpdChecked || salvandoLgpd} className="flex-1 bg-gradient-to-r from-blue-600 to-cyan-500 text-white py-3 rounded-2xl font-semibold disabled:opacity-50">
                 {salvandoLgpd ? "Salvando..." : "Aceitar e Continuar"}
               </button>
-              <button onClick={handleLogout} className="w-full sm:w-auto px-6 py-3 bg-white/5 border border-white/10 hover:bg-white/10 rounded-2xl text-white transition-colors text-sm md:text-base">Sair</button>
+              <button onClick={handleLogout} className="px-6 bg-white/5 border border-white/10 hover:bg-white/10 rounded-2xl text-white transition-colors">Sair</button>
             </div>
           </div>
         </div>

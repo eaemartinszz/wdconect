@@ -1,3 +1,5 @@
+
+
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -72,6 +74,9 @@ export default function ConectarPage() {
   const [diaSelecionado, setDiaSelecionado] = useState<string>("");
   const [diasOcupados, setDiasOcupados] = useState<string[]>([]);
   const [pagamentoLiberado, setPagamentoLiberado] = useState(false);
+  
+  // ================= ESTADO DO FILTRO DE BUSCA =================
+  const [buscaTermo, setBuscaTermo] = useState("");
 
   // Estados do Modal de Detalhes do Profissional
   const [profissionalModal, setProfissionalModal] = useState<Usuario | null>(null);
@@ -111,6 +116,7 @@ export default function ConectarPage() {
     });
     return () => unsubscribe();
   }, []);
+  
 
   // ================= BUSCAR PROFISSIONAIS =================
   const buscarProfissionais = async () => {
@@ -125,6 +131,17 @@ export default function ConectarPage() {
     } catch (error) { console.error(error); } 
     finally { setLoadingProfissionais(false); }
   };
+
+  // ================= LÓGICA DO FILTRO =================
+  // Filtra os profissionais com base no termo digitado (Nome, Especialidade ou Cidade)
+  const profissionaisFiltrados = profissionais.filter((prof) => {
+    const termo = buscaTermo.toLowerCase();
+    const nome = prof.nome?.toLowerCase() || "";
+    const especialidade = prof.especialidade?.toLowerCase() || "";
+    const cidade = prof.cidade?.toLowerCase() || "";
+
+    return nome.includes(termo) || especialidade.includes(termo) || cidade.includes(termo);
+  });
 
   // ================= GERAR E BUSCAR DIAS =================
   const gerarDias = () => {
@@ -296,6 +313,7 @@ export default function ConectarPage() {
                     {profissionalModal.bio || "Este profissional ainda não adicionou um resumo biográfico. No entanto, passou por nossa verificação de segurança."}
                   </p>
                 </div>
+                
               </div>
 
               <div className="mt-8 flex gap-4">
@@ -361,7 +379,7 @@ export default function ConectarPage() {
                 ) : (
                   conversas.map((chat) => (
                     <button key={chat.id} onClick={() => { setActiveChatId(chat.id); setActiveChatUser(chat); }} className={`w-full p-4 flex items-center gap-4 text-left transition-colors border-b border-white/5 ${activeChatId === chat.id ? "bg-cyan-500/10" : "hover:bg-white/5"}`}>
-                      <img src={chat.fotoDestinatario || `https://ui-avatars.com/api/?name=${chat.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-12 h-12 rounded-full object-cover" />
+                      <img src={chat.fotoDestinatario || `https://ui-avatars.com/api/?name=${chat.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-12 h-12 rounded-full object-cover border border-white/10" />
                       <div className="overflow-hidden flex-1">
                         <h4 className="font-bold text-white text-sm truncate">{chat.nomeDestinatario}</h4>
                         <p className="text-xs text-slate-400 truncate mt-1">{chat.ultimaMensagem || "Iniciar conversa..."}</p>
@@ -375,20 +393,20 @@ export default function ConectarPage() {
             <section className={`flex-1 flex-col bg-black/10 ${!activeChatId ? "hidden md:flex" : "flex"}`}>
               {activeChatId && activeChatUser ? (
                 <>
-                  <div className="border-b border-white/10 px-6 py-4 flex items-center gap-4 bg-white/5">
+                  <div className="border-b border-white/10 px-4 md:px-6 py-4 flex items-center gap-3 md:gap-4 bg-white/5">
                     <button onClick={() => { setActiveChatId(null); setActiveChatUser(null); }} className="md:hidden text-slate-300 hover:text-white p-2">
                       <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
                     </button>
-                    <img src={activeChatUser.fotoDestinatario || `https://ui-avatars.com/api/?name=${activeChatUser.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-10 h-10 rounded-full object-cover" />
-                    <h3 className="font-bold text-white text-lg">{activeChatUser.nomeDestinatario}</h3>
+                    <img src={activeChatUser.fotoDestinatario || `https://ui-avatars.com/api/?name=${activeChatUser.nomeDestinatario}&background=0D8ABC&color=fff`} className="w-10 h-10 rounded-full object-cover border border-white/10" />
+                    <h3 className="font-bold text-white text-base md:text-lg truncate">{activeChatUser.nomeDestinatario}</h3>
                   </div>
 
-                  <div className="flex-1 p-6 overflow-y-auto space-y-4">
+                  <div className="flex-1 p-4 md:p-6 overflow-y-auto space-y-4">
                     {mensagens.map((msg) => {
                       const souEu = msg.enviadoPor === currentUid;
                       return (
                         <div key={msg.id} className={`flex w-full ${souEu ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-md rounded-2xl px-5 py-3 text-sm ${souEu ? "bg-cyan-500 text-black rounded-tr-none font-medium" : "bg-white/10 text-white rounded-tl-none border border-white/5"}`}>
+                          <div className={`max-w-[85%] md:max-w-md rounded-2xl px-4 md:px-5 py-2 md:py-3 text-sm ${souEu ? "bg-cyan-500 text-[#07111F] rounded-tr-none font-medium" : "bg-white/10 text-white rounded-tl-none border border-white/5"}`}>
                             <p className="leading-relaxed break-words">{msg.texto}</p>
                           </div>
                         </div>
@@ -397,16 +415,16 @@ export default function ConectarPage() {
                     <div ref={chatEndRef} />
                   </div>
 
-                  <form onSubmit={handleEnviarMensagem} className="p-5 border-t border-white/10 bg-white/5 flex items-center gap-3">
-                    <input type="text" value={inputMensagem} onChange={(e) => setInputMensagem(e.target.value)} placeholder="Digite sua mensagem..." className="flex-1 px-5 py-3.5 rounded-xl bg-black/40 border border-white/10 outline-none focus:border-cyan-400 transition-all text-sm" />
-                    <button type="submit" disabled={!inputMensagem.trim()} className="bg-cyan-500 text-black px-6 py-3.5 rounded-xl font-bold hover:bg-cyan-400 transition-colors disabled:opacity-50">
-                      <span className="hidden md:inline">Enviar</span>
-                      <svg className="w-5 h-5 md:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  <form onSubmit={handleEnviarMensagem} className="p-3 md:p-5 border-t border-white/10 bg-white/5 flex items-center gap-2 md:gap-3">
+                    <input type="text" value={inputMensagem} onChange={(e) => setInputMensagem(e.target.value)} placeholder="Digite sua mensagem..." className="flex-1 px-4 md:px-5 py-3 md:py-3.5 rounded-xl bg-black/40 border border-white/10 text-white outline-none focus:border-cyan-400 transition-all text-sm" />
+                    <button type="submit" disabled={!inputMensagem.trim()} className="bg-cyan-500 text-[#07111F] px-4 md:px-6 py-3 md:py-3.5 rounded-xl font-bold hover:bg-cyan-400 transition-colors disabled:opacity-50">
+                       <span className="hidden md:inline">Enviar</span>
+                       <svg className="w-5 h-5 md:hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                     </button>
                   </form>
                 </>
               ) : (
-                <div className="flex-1 flex items-center justify-center text-slate-500 font-medium">Selecione uma conversa ao lado.</div>
+                <div className="flex-1 flex items-center justify-center p-8 text-center text-slate-500 text-sm md:text-base font-medium">Selecione uma conversa ao lado.</div>
               )}
             </section>
           </div>
@@ -453,15 +471,37 @@ export default function ConectarPage() {
 
           {planoSelecionado && (
             <section className="max-w-7xl mx-auto px-6 pb-16">
-              <div className="mb-8">
-                <h3 className="text-3xl font-black">Escolha um profissional</h3>
-                <p className="text-slate-400 mt-2">Profissionais disponíveis para o plano selecionado.</p>
+              <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                <div>
+                  <h3 className="text-3xl font-black">Escolha um profissional</h3>
+                  <p className="text-slate-400 mt-2">Profissionais disponíveis para o plano selecionado.</p>
+                </div>
+                
+                {/* BARRA DE PESQUISA */}
+                <div className="relative w-full md:w-80">
+                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <svg className="h-5 w-5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={buscaTermo}
+                    onChange={(e) => setBuscaTermo(e.target.value)}
+                    placeholder="Buscar por cidade ou especialidade..."
+                    className="w-full bg-[#101C2C] border border-white/10 rounded-2xl pl-11 pr-4 py-3 text-white outline-none focus:border-cyan-400 transition-all text-sm placeholder:text-slate-500 shadow-inner"
+                  />
+                </div>
               </div>
+              
               {loadingProfissionais ? (
                 <div className="py-10 text-center text-slate-400">Carregando profissionais...</div>
+              ) : profissionaisFiltrados.length === 0 ? (
+                <div className="py-12 text-center bg-white/5 border border-white/10 rounded-3xl">
+                  <p className="text-slate-400 text-lg">Nenhum profissional encontrado para "{buscaTermo}".</p>
+                  <button onClick={() => setBuscaTermo("")} className="mt-4 text-cyan-400 hover:text-cyan-300 font-semibold underline">Limpar busca</button>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                  {profissionais.map((prof) => {
+                  {profissionaisFiltrados.map((prof) => {
                     const ativo = profissionalSelecionado?.id === prof.id;
                     return (
                       <div key={prof.id} className={`group overflow-hidden rounded-[32px] border transition-all duration-300 ${ativo ? "border-cyan-400 bg-cyan-500/10" : "border-white/10 bg-white/5 hover:border-cyan-400/30"}`}>
@@ -580,3 +620,4 @@ export default function ConectarPage() {
     </div>
   );
 }
+

@@ -1,6 +1,7 @@
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast"; // <-- Importação do Toast adicionada
 
 // Firebase
 import { auth, db } from "../firebaseConfig";
@@ -159,9 +160,10 @@ export default function DashboardProfissional() {
       await updateDoc(doc(db, "agendamentos", id), {
         status: novoStatus
       });
+      toast.success(`Serviço alterado para: ${novoStatus}`); // <-- Toast adicionado
     } catch (error) {
       console.error("Erro ao alterar status:", error);
-      alert("Erro ao atualizar o status do serviço.");
+      toast.error("Erro ao atualizar o status do serviço."); // <-- Toast adicionado
     }
   };
 
@@ -173,10 +175,10 @@ export default function DashboardProfissional() {
           data: novaData,
           status: "Reagendado"
         });
-        alert("Solicitação de reagendamento enviada para a família.");
+        toast.success("Solicitação de reagendamento enviada!"); // <-- Toast adicionado
       } catch (error) {
         console.error("Erro ao reagendar:", error);
-        alert("Erro ao reagendar o serviço.");
+        toast.error("Erro ao reagendar o serviço."); // <-- Toast adicionado
       }
     }
   };
@@ -200,10 +202,10 @@ export default function DashboardProfissional() {
 
       setNome(profileData.name); 
       setShowProfileModal(false); 
-      alert("Perfil atualizado com sucesso!");
+      toast.success("Perfil atualizado com sucesso!"); // <-- Toast adicionado
     } catch (error) {
       console.error("Erro ao salvar perfil profissional:", error);
-      alert("Erro ao salvar alterações do perfil.");
+      toast.error("Erro ao salvar alterações do perfil."); // <-- Toast adicionado
     } finally {
       setSalvandoPerfil(false);
     }
@@ -233,26 +235,6 @@ export default function DashboardProfissional() {
     setIsMobileMenuOpen(false);
   };
 
-  const handleEnviarMensagem = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputMensagem.trim() || !activeChatId || !userUid || !activeChatUser) return;
-    const textoMensagem = inputMensagem;
-    setInputMensagem("");
-
-    try {
-      await setDoc(doc(db, "conversas", activeChatId), {
-        participantes: activeChatUser.participantes,
-        ultimaMensagem: textoMensagem, 
-        atualizadoEm: serverTimestamp()
-      }, { merge: true });
-
-      await addDoc(collection(db, "conversas", activeChatId, "mensagens"), {
-        texto: textoMensagem, enviadoPor: userUid, criadoEm: serverTimestamp()
-      });
-    } catch (error) { console.error("Erro ao enviar mensagem:", error); }
-  };
-
-  // ================= NAVEGAÇÃO MOBILE =================
   const changeTab = (tab: any) => {
     setActiveTab(tab);
     setIsMobileMenuOpen(false);
@@ -303,11 +285,17 @@ export default function DashboardProfissional() {
                     Aceitar
                   </button>
                 )}
+
                 {servico.status !== "Concluído" && servico.status !== "Cancelado" && (
                   <button onClick={() => handleReagendar(servico.id)} className="w-full sm:w-auto px-5 py-3 border border-white/10 hover:bg-white/5 text-slate-300 text-sm font-semibold rounded-xl transition-colors">
                     Reagendar
                   </button>
                 )}
+                {servico.status === "Confirmado" && (
+  <button onClick={() => alterarStatus(servico.id, "Concluído")} className="w-full sm:w-auto px-5 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 text-sm font-semibold rounded-xl transition-colors">
+    Concluir
+  </button>
+)}
                 <button onClick={() => handleAbrirChatComFamilia(servico.familiaId, servico.familia)} className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:opacity-90 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
                   <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                   Conversar
@@ -325,7 +313,6 @@ export default function DashboardProfissional() {
   const renderChat = () => (
     <div className="flex flex-col md:flex-row h-[75vh] min-h-[500px] w-full bg-[#101C2C] rounded-[32px] border border-white/10 overflow-hidden shadow-2xl animate-in fade-in duration-500 relative">
       
-      {/* Lista de Conversas (Escondida no mobile se um chat estiver aberto) */}
       <aside className={`w-full md:w-80 border-r border-white/10 bg-black/20 flex-col ${activeChatId ? "hidden md:flex" : "flex"}`}>
         <div className="p-5 border-b border-white/10"><h2 className="font-black text-lg text-white">Mensagens</h2></div>
         <div className="flex-1 overflow-y-auto">
@@ -345,7 +332,6 @@ export default function DashboardProfissional() {
         </div>
       </aside>
 
-      {/* Área da Conversa (Escondida no mobile se nenhum chat estiver selecionado) */}
       <section className={`flex-1 flex-col bg-black/10 ${!activeChatId ? "hidden md:flex" : "flex"}`}>
         {activeChatId && activeChatUser ? (
           <>
@@ -514,5 +500,9 @@ export default function DashboardProfissional() {
 
     </div>
   );
+}
+
+function handleEnviarMensagem(event: FormEvent<HTMLFormElement>): void {
+  throw new Error("Function not implemented.");
 }
 
