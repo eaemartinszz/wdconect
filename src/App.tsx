@@ -45,7 +45,7 @@ export default function App() {
         <Route path="/configuracoes" element={<DashboardSettings />} /> 
         <Route path="/conectar" element={<ConectarPage />} />
         <Route path="/dashboard-profissional" element={<DashboardProfissional />} />
-        <Route path="/admin" element={<DashboardAdmin />} />
+        <Route path="/wd-admin" element={<DashboardAdmin />} />
       </Routes>
     </Router>
   );

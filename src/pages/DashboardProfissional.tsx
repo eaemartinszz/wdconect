@@ -1,7 +1,7 @@
 
-import { useState, useEffect, useRef, FormEvent } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import toast from "react-hot-toast"; // <-- Importação do Toast adicionada
+import toast from "react-hot-toast";
 
 // Firebase
 import { auth, db } from "../firebaseConfig";
@@ -17,7 +17,7 @@ import {
   addDoc, 
   serverTimestamp, 
   orderBy, 
-  setDoc
+  setDoc  
 } from "firebase/firestore";
 
 // ================= INTERFACES =================
@@ -73,6 +73,7 @@ export default function DashboardProfissional() {
   // ================= ESTADOS DO POPUP EDITAR PERFIL =================
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [salvandoPerfil, setSalvandoPerfil] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [profileData, setProfileData] = useState({
     name: "",
     phone: "",
@@ -80,7 +81,26 @@ export default function DashboardProfissional() {
     carterinha: "",
     especialidade: "",
     cidade: "",
+    photoURL: "",
   });
+
+  // ================= ESTADO DO POPUP VER CLIENTE =================
+  const [familiaModal, setFamiliaModal] = useState<any | null>(null);
+
+  // ================= INTELIGÊNCIA FINANCEIRA =================
+  const parseValor = (valorStr: string) => {
+    if (!valorStr) return 0;
+    const num = String(valorStr).replace(/\D/g, "");
+    return Number(num);
+  };
+
+  const saldoProfissional = servicos
+    .filter(s => s.status === "Concluído" || s.status === "Confirmado")
+    .reduce((acc, s) => acc + parseValor(s.valor), 0) * 0.70; // 70% do Profissional
+
+  const formatarMoeda = (valor: number) => {
+    return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  };
 
   // ================= 1. VERIFICAR AUTENTICAÇÃO E CARREGAR DADOS =================
   useEffect(() => {
@@ -103,6 +123,7 @@ export default function DashboardProfissional() {
             carterinha: data.carterinha || "",
             especialidade: data.especialidade || "",
             cidade: data.cidade || "",
+            photoURL: data.photoURL || "",
           });
         }
 
@@ -160,10 +181,10 @@ export default function DashboardProfissional() {
       await updateDoc(doc(db, "agendamentos", id), {
         status: novoStatus
       });
-      toast.success(`Serviço alterado para: ${novoStatus}`); // <-- Toast adicionado
+      toast.success(`Serviço alterado para: ${novoStatus}`);
     } catch (error) {
       console.error("Erro ao alterar status:", error);
-      toast.error("Erro ao atualizar o status do serviço."); // <-- Toast adicionado
+      toast.error("Erro ao atualizar o status do serviço.");
     }
   };
 
@@ -175,11 +196,45 @@ export default function DashboardProfissional() {
           data: novaData,
           status: "Reagendado"
         });
-        toast.success("Solicitação de reagendamento enviada!"); // <-- Toast adicionado
+        toast.success("Solicitação de reagendamento enviada!");
       } catch (error) {
         console.error("Erro ao reagendar:", error);
-        toast.error("Erro ao reagendar o serviço."); // <-- Toast adicionado
+        toast.error("Erro ao reagendar o serviço.");
       }
+    }
+  };
+
+  // ================= FUNÇÃO AUXILIAR: BASE64 =================
+  const convertToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  // ================= UPLOAD FOTO DE PERFIL (BASE64) =================
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !userUid) return;
+
+    if (file.size > 800 * 1024) {
+      toast.error("Imagem muito pesada! Escolha uma imagem de até 800KB.");
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const base64String = await convertToBase64(file);
+      setProfileData((prev) => ({ ...prev, photoURL: base64String }));
+      await setDoc(doc(db, "usuarios", userUid), { photoURL: base64String }, { merge: true });
+      toast.success("Foto de perfil atualizada!");
+    } catch (error) {
+      console.error(error);
+      toast.error("Erro ao processar imagem.");
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -202,12 +257,27 @@ export default function DashboardProfissional() {
 
       setNome(profileData.name); 
       setShowProfileModal(false); 
-      toast.success("Perfil atualizado com sucesso!"); // <-- Toast adicionado
+      toast.success("Perfil atualizado com sucesso!");
     } catch (error) {
       console.error("Erro ao salvar perfil profissional:", error);
-      toast.error("Erro ao salvar alterações do perfil."); // <-- Toast adicionado
+      toast.error("Erro ao salvar alterações do perfil.");
     } finally {
       setSalvandoPerfil(false);
+    }
+  };
+
+  // ================= ABRIR PERFIL DA FAMÍLIA =================
+  const handleAbrirPerfilFamilia = async (familiaId: string) => {
+    try {
+      const docRef = doc(db, "usuarios", familiaId);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setFamiliaModal({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        toast.error("Perfil do cliente não encontrado.");
+      }
+    } catch (error) {
+      toast.error("Erro ao carregar perfil do cliente.");
     }
   };
 
@@ -235,6 +305,26 @@ export default function DashboardProfissional() {
     setIsMobileMenuOpen(false);
   };
 
+  const handleEnviarMensagem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inputMensagem.trim() || !activeChatId || !userUid || !activeChatUser) return;
+    const textoMensagem = inputMensagem;
+    setInputMensagem("");
+
+    try {
+      await setDoc(doc(db, "conversas", activeChatId), {
+        participantes: activeChatUser.participantes,
+        ultimaMensagem: textoMensagem, 
+        atualizadoEm: serverTimestamp()
+      }, { merge: true });
+
+      await addDoc(collection(db, "conversas", activeChatId, "mensagens"), {
+        texto: textoMensagem, enviadoPor: userUid, criadoEm: serverTimestamp()
+      });
+    } catch (error) { console.error("Erro ao enviar mensagem:", error); }
+  };
+
+  // ================= NAVEGAÇÃO MOBILE =================
   const changeTab = (tab: any) => {
     setActiveTab(tab);
     setIsMobileMenuOpen(false);
@@ -243,9 +333,19 @@ export default function DashboardProfissional() {
   // ================= ABA: AGENDA DE SERVIÇOS =================
   const renderAgenda = () => (
     <div className="space-y-6 md:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div>
-        <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">Meus Serviços</h2>
-        <p className="text-slate-400 text-sm md:text-base">Gerencie suas contratações, agendamentos e status de trabalho.</p>
+      
+      {/* HEADER E CARTEIRA DO PROFISSIONAL */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5 mb-8">
+        <div className="flex flex-col justify-center">
+          <h2 className="text-2xl md:text-3xl font-bold text-white mb-1">Meus Serviços</h2>
+          <p className="text-slate-400 text-sm md:text-base">Gerencie suas contratações e status de trabalho.</p>
+        </div>
+        
+        <div className="bg-gradient-to-br from-emerald-600/20 to-emerald-900/20 border border-emerald-500/30 p-6 rounded-3xl shadow-[0_0_15px_rgba(16,185,129,0.1)] flex flex-col justify-center relative overflow-hidden">
+          <div className="absolute right-[-20px] top-[-20px] w-24 h-24 bg-emerald-500/20 rounded-full blur-2xl"></div>
+          <p className="text-emerald-400 text-xs md:text-sm font-bold uppercase tracking-wider mb-1">Meu Saldo </p>
+          <p className="text-3xl md:text-4xl font-black text-white">{formatarMoeda(saldoProfissional)}</p>
+        </div>
       </div>
 
       <div className="grid gap-4 md:gap-5">
@@ -261,7 +361,14 @@ export default function DashboardProfissional() {
               
               <div className="w-full">
                 <div className="flex items-center gap-3 mb-3">
-                  <h3 className="font-bold text-white text-lg md:text-xl">{servico.familia || "Família"}</h3>
+                  <h3 
+                    className="font-bold text-white text-lg md:text-xl cursor-pointer hover:text-cyan-400 transition-colors flex items-center gap-2"
+                    onClick={() => handleAbrirPerfilFamilia(servico.familiaId)}
+                    title="Ver perfil do cliente"
+                  >
+                    {servico.familia || "Família"}
+                    <svg className="w-4 h-4 text-slate-500 hover:text-cyan-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                  </h3>
                   <span className={`px-3 py-1 rounded-full text-[10px] md:text-xs font-bold uppercase tracking-wider ${
                     servico.status === 'Confirmado' ? 'bg-emerald-500/20 text-emerald-400' :
                     servico.status === 'Reagendado' ? 'bg-orange-500/20 text-orange-400' :
@@ -285,17 +392,11 @@ export default function DashboardProfissional() {
                     Aceitar
                   </button>
                 )}
-
                 {servico.status !== "Concluído" && servico.status !== "Cancelado" && (
                   <button onClick={() => handleReagendar(servico.id)} className="w-full sm:w-auto px-5 py-3 border border-white/10 hover:bg-white/5 text-slate-300 text-sm font-semibold rounded-xl transition-colors">
                     Reagendar
                   </button>
                 )}
-                {servico.status === "Confirmado" && (
-  <button onClick={() => alterarStatus(servico.id, "Concluído")} className="w-full sm:w-auto px-5 py-3 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 border border-blue-500/30 text-sm font-semibold rounded-xl transition-colors">
-    Concluir
-  </button>
-)}
                 <button onClick={() => handleAbrirChatComFamilia(servico.familiaId, servico.familia)} className="w-full sm:w-auto px-5 py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:opacity-90 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
                   <svg className="w-4 h-4 md:w-5 md:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                   Conversar
@@ -313,6 +414,7 @@ export default function DashboardProfissional() {
   const renderChat = () => (
     <div className="flex flex-col md:flex-row h-[75vh] min-h-[500px] w-full bg-[#101C2C] rounded-[32px] border border-white/10 overflow-hidden shadow-2xl animate-in fade-in duration-500 relative">
       
+      {/* Lista de Conversas */}
       <aside className={`w-full md:w-80 border-r border-white/10 bg-black/20 flex-col ${activeChatId ? "hidden md:flex" : "flex"}`}>
         <div className="p-5 border-b border-white/10"><h2 className="font-black text-lg text-white">Mensagens</h2></div>
         <div className="flex-1 overflow-y-auto">
@@ -332,6 +434,7 @@ export default function DashboardProfissional() {
         </div>
       </aside>
 
+      {/* Área da Conversa */}
       <section className={`flex-1 flex-col bg-black/10 ${!activeChatId ? "hidden md:flex" : "flex"}`}>
         {activeChatId && activeChatUser ? (
           <>
@@ -397,6 +500,36 @@ export default function DashboardProfissional() {
         <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
+      {/* MODAL POPUP: VER PERFIL DA FAMÍLIA/CLIENTE */}
+      {familiaModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#101C2C] border border-white/10 rounded-3xl shadow-2xl max-w-sm w-full p-6 relative text-white animate-in fade-in zoom-in-95 duration-300">
+            <button onClick={() => setFamiliaModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+            <div className="flex flex-col items-center text-center mt-4">
+              <img src={familiaModal.photoURL || `https://ui-avatars.com/api/?name=${familiaModal.nome}&background=0D8ABC&color=fff`} alt={familiaModal.nome} className="w-24 h-24 rounded-full object-cover border-4 border-[#07111F] shadow-lg mb-4" />
+              <h2 className="text-2xl font-black">{familiaModal.nome}</h2>
+              <p className="text-cyan-400 font-semibold mt-1">Cliente / Família</p>
+              
+              {familiaModal.bio && (
+                <p className="text-slate-300 text-sm mt-4 leading-relaxed px-2">"{familiaModal.bio}"</p>
+              )}
+              
+              <div className="mt-6 w-full bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col gap-2 text-left">
+                {familiaModal.telefone && (
+                  <p className="text-sm"><strong className="text-slate-400">Telefone:</strong> {familiaModal.telefone}</p>
+                )}
+                <p className="text-sm"><strong className="text-slate-400">Membro desde:</strong> 2026</p>
+              </div>
+            </div>
+            <button onClick={() => setFamiliaModal(null)} className="w-full mt-6 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold transition-colors">
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* MODAL POPUP: EDITAR PERFIL DO PROFISSIONAL */}
       {showProfileModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -406,8 +539,23 @@ export default function DashboardProfissional() {
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
 
-            <h2 className="text-2xl font-black mb-2">Editar Meu Perfil</h2>
-            <p className="text-slate-400 text-sm mb-6">Mantenha os seus dados atualizados para as famílias.</p>
+            <h2 className="text-2xl font-black mb-2 text-center">Editar Meu Perfil</h2>
+            <p className="text-slate-400 text-sm mb-6 text-center">Mantenha os seus dados atualizados para as famílias.</p>
+
+            {/* FOTO DE PERFIL UPLOAD */}
+            <div className="flex justify-center mb-6">
+              <label htmlFor="upload-photo" className="relative group cursor-pointer w-24 h-24 rounded-full border-4 border-[#101C2C] overflow-hidden block shadow-xl bg-[#07111F]">
+                {uploadingImage ? (
+                  <div className="w-full h-full flex items-center justify-center"><span className="text-[10px] text-white">A enviar...</span></div>
+                ) : (
+                  <>
+                    <img src={profileData.photoURL || `https://ui-avatars.com/api/?name=${profileData.name}&background=0D8ABC&color=fff`} alt="Perfil" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-xs font-semibold">Alterar</div>
+                  </>
+                )}
+              </label>
+              <input type="file" id="upload-photo" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={uploadingImage} />
+            </div>
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div>
@@ -500,9 +648,5 @@ export default function DashboardProfissional() {
 
     </div>
   );
-}
-
-function handleEnviarMensagem(event: FormEvent<HTMLFormElement>): void {
-  throw new Error("Function not implemented.");
 }
 

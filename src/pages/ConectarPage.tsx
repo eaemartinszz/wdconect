@@ -29,6 +29,7 @@ interface Usuario {
   especialidade?: string;
   cidade?: string;
   carterinha?: string;
+  verificado?: boolean; // <-- Adicionado o status de verificação
 }
 
 interface Plano {
@@ -125,9 +126,15 @@ export default function ConectarPage() {
       const q = query(collection(db, "usuarios"), where("tipoConta", "==", "professional"));
       const querySnapshot = await getDocs(q);
       const lista: Usuario[] = [];
+      
       querySnapshot.forEach((doc) => {
-        lista.push({ id: doc.id, ...doc.data() } as Usuario);
+        const data = doc.data() as Usuario;
+        // FILTRO DE ADMIN: Apenas adiciona à lista se for verificado
+        if (data.verificado === true) {
+          lista.push({ ...data, id: doc.id });
+        }
       });
+      
       setProfissionais(lista);
 
       // 2. Busca e Calcula Avaliações
@@ -311,7 +318,14 @@ export default function ConectarPage() {
               
               <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-3xl font-black">{profissionalModal.nome}</h2>
+                  <h2 className="text-3xl font-black flex items-center gap-2">
+                    {profissionalModal.nome}
+                    {profissionalModal.verificado && (
+                      <span title="Verificado pela WD" className="flex items-center justify-center w-6 h-6 bg-emerald-500 rounded-full text-[#07111F]">
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                      </span>
+                    )}
+                  </h2>
                   <p className="text-cyan-400 font-bold text-lg">{profissionalModal.especialidade || "Profissional WD"}</p>
                 </div>
                 
@@ -504,7 +518,7 @@ export default function ConectarPage() {
               <div className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
                   <h3 className="text-3xl font-black">Escolha um profissional</h3>
-                  <p className="text-slate-400 mt-2">Profissionais disponíveis para o plano selecionado.</p>
+                  <p className="text-slate-400 mt-2">Apenas profissionais verificados e aprovados pela plataforma.</p>
                 </div>
                 
                 {/* BARRA DE PESQUISA */}
@@ -526,7 +540,7 @@ export default function ConectarPage() {
                 <div className="py-10 text-center text-slate-400">Carregando profissionais...</div>
               ) : profissionaisFiltrados.length === 0 ? (
                 <div className="py-12 text-center bg-white/5 border border-white/10 rounded-3xl">
-                  <p className="text-slate-400 text-lg">Nenhum profissional encontrado para "{buscaTermo}".</p>
+                  <p className="text-slate-400 text-lg">Nenhum profissional verificado encontrado para "{buscaTermo}".</p>
                   <button onClick={() => setBuscaTermo("")} className="mt-4 text-cyan-400 hover:text-cyan-300 font-semibold underline">Limpar busca</button>
                 </div>
               ) : (
@@ -551,7 +565,12 @@ export default function ConectarPage() {
                         </div>
                         <div className="p-7 pt-4 flex flex-col justify-between h-[230px]">
                           <div className="cursor-pointer" onClick={() => { setProfissionalSelecionado(prof); setDiaSelecionado(""); setPagamentoLiberado(false); }}>
-                            <h3 className="text-2xl font-black">{prof.nome}</h3>
+                            <h3 className="text-2xl font-black flex items-center gap-2">
+                              {prof.nome}
+                              <span title="Verificado pela WD" className="flex items-center justify-center w-5 h-5 bg-emerald-500 rounded-full text-[#07111F]">
+                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                              </span>
+                            </h3>
                             
                             {/* EXIBIÇÃO DAS ESTRELAS NO CARD PRINCIPAL */}
                             <div className="flex items-center gap-2 mt-1">
@@ -622,7 +641,7 @@ export default function ConectarPage() {
                     <div className="space-y-4 md:space-y-5 mb-8 md:mb-10">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-4 gap-1"><span className="text-slate-400 text-sm md:text-base">Plano selecionado</span><span className="font-bold">{planoSelecionado?.nome}</span></div>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-4 gap-1"><span className="text-slate-400 text-sm md:text-base">Horário do plantão</span><span className="font-bold text-cyan-300">{planoSelecionado?.horario}</span></div>
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-4 gap-1"><span className="text-slate-400 text-sm md:text-base">Profissional</span><span className="font-bold">{profissionalSelecionado?.nome}</span></div>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-4 gap-1"><span className="text-slate-400 text-sm md:text-base">Profissional</span><span className="font-bold flex items-center gap-2">{profissionalSelecionado?.nome} <span className="text-emerald-400 text-xs">(Verificado)</span></span></div>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-white/10 pb-4 gap-1"><span className="text-slate-400 text-sm md:text-base">Dia reservado</span><span className="font-bold">{diaSelecionado}</span></div>
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-2 gap-1"><span className="text-slate-400 text-sm md:text-base">Valor a pagar</span><span className="text-4xl font-black text-cyan-400">{planoSelecionado?.valor}</span></div>
                     </div>

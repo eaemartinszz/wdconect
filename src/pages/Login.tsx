@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom"; 
 // Importações do Firebase
@@ -20,31 +21,31 @@ export default function LoginPage() {
     setMensagem({ tipo: "", texto: "" }); 
     setLoading(true);
 
-    // ================= VERIFICAÇÃO ADMIN (MODO TESTE) =================
-    // Se for um administrador e a senha for "123456", entra direto sem consultar o Firebase
-    if (
-      (email === "gabiespin34@gmail.com" || email === "victor.piaget1906@gmail.com") && 
-      password === "@123456"
-    ) {
-      console.log("Login ADMIN de teste realizado com sucesso:", email);
-      navigate("/admin");
-      setLoading(false);
-      return; // Interrompe a execução para não continuar com o login normal
-    }
-
     try {
+      // 1. Faz a autenticação real no Firebase
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       console.log("Login realizado com sucesso:", user.email);
       
-      // Busca os dados do usuário no banco de dados para saber o tipo de conta normal
+      // 2. Busca os dados do usuário no banco de dados
       const docRef = doc(db, "usuarios", user.uid);
       const docSnap = await getDoc(docRef);
 
-      // Redireciona dependendo do tipo de conta (profissional ou família)
-      if (docSnap.exists() && docSnap.data().tipoConta === "professional") {
-        navigate("/dashboard-profissional");
+      if (docSnap.exists()) {
+        const dados = docSnap.data();
+
+        // 3. Redireciona de acordo com o tipo de conta real no banco
+        if (dados.tipoConta === "admin" || dados.role === "admin") {
+          navigate("/wd-admin");
+        } 
+        else if (dados.tipoConta === "professional") {
+          navigate("/dashboard-profissional");
+        } 
+        else {
+          navigate("/configuracoes");
+        }
       } else {
+        // Se por algum motivo o documento não existir, manda para o padrão
         navigate("/configuracoes");
       }
 
@@ -273,3 +274,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

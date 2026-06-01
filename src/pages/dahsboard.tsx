@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 
 // Firebase
-import { auth, db, storage } from "../firebaseConfig";
+import { auth, db } from "../firebaseConfig"; // <-- storage removido
 import {
   onAuthStateChanged,
   signOut,
@@ -27,12 +27,6 @@ import {
   orderBy,
 } from "firebase/firestore";
 
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-} from "firebase/storage";
-
 // ================= INTERFACES =================
 interface Servico {
   id: string;
@@ -43,7 +37,7 @@ interface Servico {
   hora: string;
   status: string;
   valor: string;
-  avaliado?: boolean; // <-- NOVO CAMPO
+  avaliado?: boolean;
 }
 
 interface Mensagem {
@@ -282,37 +276,63 @@ export default function DashboardSettings() {
     }
   };
 
-  // ================= UPLOAD FOTOS =================
+  // ================= FUNÇÃO AUXILIAR: CONVERTER ARQUIVO PARA BASE64 =================
+  const convertToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
+  // ================= UPLOAD FOTOS (BASE64) =================
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userUid) return;
+
+    // Proteção: Limite de 800KB para evitar exceder 1MB do documento Firestore
+    if (file.size > 800 * 1024) {
+      toast.error("Imagem muito pesada! Escolha uma imagem de até 800KB.");
+      return;
+    }
+
     setUploadingImage(true);
     try {
-      const storageRef = ref(storage, `profile_pictures/${userUid}`);
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-      setProfileData((prev) => ({ ...prev, photoURL: downloadURL }));
-      await setDoc(doc(db, "usuarios", userUid), { photoURL: downloadURL }, { merge: true });
+      const base64String = await convertToBase64(file);
+      setProfileData((prev) => ({ ...prev, photoURL: base64String }));
+      await setDoc(doc(db, "usuarios", userUid), { photoURL: base64String }, { merge: true });
       toast.success("Foto de perfil atualizada!"); 
     } catch (error) {
-      toast.error("Erro ao enviar imagem."); 
-    } finally { setUploadingImage(false); }
+      console.error(error);
+      toast.error("Erro ao processar imagem."); 
+    } finally { 
+      setUploadingImage(false); 
+    }
   };
 
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !userUid) return;
+
+    // Proteção: Limite de 800KB
+    if (file.size > 800 * 1024) {
+      toast.error("Capa muito pesada! Escolha uma imagem de até 800KB.");
+      return;
+    }
+
     setUploadingCover(true);
     try {
-      const storageRef = ref(storage, `cover_pictures/${userUid}`);
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-      setProfileData((prev) => ({ ...prev, coverURL: downloadURL }));
-      await setDoc(doc(db, "usuarios", userUid), { coverURL: downloadURL }, { merge: true });
+      const base64String = await convertToBase64(file);
+      setProfileData((prev) => ({ ...prev, coverURL: base64String }));
+      await setDoc(doc(db, "usuarios", userUid), { coverURL: base64String }, { merge: true });
       toast.success("Capa atualizada com sucesso!"); 
     } catch (error) {
-      toast.error("Erro ao enviar capa."); 
-    } finally { setUploadingCover(false); }
+      console.error(error);
+      toast.error("Erro ao processar capa."); 
+    } finally { 
+      setUploadingCover(false); 
+    }
   };
 
   // ================= AÇÕES BÁSICAS =================
